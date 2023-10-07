@@ -1,0 +1,5 @@
+__pycache__
+*.log
+__pytest_cache__
+.DS_Store
+df_env
