@@ -21,4 +21,6 @@ RUN poetry export --format=requirements.txt \
 --output=requirements/prod_requirements.txt --without-hashes
 
 RUN pip install -r requirements/prod_requirements.txt 
+RUN chmod +x ./entrypoint.sh
+
 ENTRYPOINT ["sh", "entrypoint.sh"]
