@@ -4,24 +4,26 @@ import numpy
 import albumentations
 import typing
 
+
 class IsotropicResize(albumentations.ImageOnlyTransform):
 
     """
     Class for dynamic isotropic resize of images
-    
+
     Parameters:
     ----------
 
     interpolation_down - how to interpolate image when we want to scale it to a smaller size
     interpolation_up - how to interpolate image when we want to scale it to a bigger size
     """
-    def __init__(self, 
-        interpolation_down: cv2.INTER_AREA, 
-        interpolation_up: cv2.INTER_CUBIC
-    ):
+
+    def __init__(self,
+                 interpolation_down: cv2.INTER_AREA,
+                 interpolation_up: cv2.INTER_CUBIC
+                 ):
         self.interpolation_down = interpolation_down
-        self.interpolation_up = interpolation_up 
-    
+        self.interpolation_up = interpolation_up
+
     def _get_interpolation_policy(self, image, target_size: int):
         """
         Function returns interpolation policy,
@@ -34,7 +36,7 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
             image = numpy.eye(1024)
             target_size = 512
             policy = _get_interpolation_policy(image, target_size)
-            
+
             resized_img = cv2.resize(
                 image, 
                 (target_size, target_size), 
@@ -60,7 +62,8 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
         target_size (int) - new size for the transformed image
         """
         if not isinstance(image, numpy.ndarray):
-            raise TypeError("image should be a numpy.ndarray, but not %s" % type(image))
+            raise TypeError(
+                "image should be a numpy.ndarray, but not %s" % type(image))
 
         height, width = image.shape[0], image[0].shape[0]
         ratio = width / height
@@ -68,8 +71,8 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
         if ratio > 1:
             new_width = target_size
             new_height = int(new_width / ratio)
-        else: 
-            new_height = target_size 
+        else:
+            new_height = target_size
             new_width = int(new_height * ratio)
         return new_height, new_width
 
@@ -82,6 +85,5 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
             int_policy = self._get_interpolation_policy(img, target_size)
             return cv2.resize(img, (ratio_h, ratio_w), interpolation=int_policy)
 
-        except(TypeError):
+        except (TypeError):
             raise RuntimeError('Invalid image format, convertion failed')
-    
