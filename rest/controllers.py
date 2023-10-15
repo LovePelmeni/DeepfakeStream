@@ -14,6 +14,7 @@ try:
 except(FileNotFoundError) as err:
     raise SystemExit("Failed to load model file, check logs.")
 
+
 async def predict_human_deepfake(photo: UploadFile = ...):
     """
     Controller for predicting human deepfake,

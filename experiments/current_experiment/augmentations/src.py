@@ -83,7 +83,11 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
 
             ratio_h, ratio_w = self._get_aspect_ratio(img, target_size)
             int_policy = self._get_interpolation_policy(img, target_size)
-            return cv2.resize(img, (ratio_h, ratio_w), interpolation=int_policy)
+            return cv2.resize(
+                img, 
+                (ratio_h, ratio_w), 
+                interpolation=int_policy
+            )
 
         except (TypeError):
             raise RuntimeError('Invalid image format, convertion failed')

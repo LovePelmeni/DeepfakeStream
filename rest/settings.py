@@ -1,7 +1,7 @@
-import fastapi
-import os
-import logging
-from rest.controllers import predict_human_deepfake
+import fastapi 
+import os 
+import logging 
+from rest.controllers import predict_human_deepfake, healthcheck
 from fastapi.middleware import cors
 
 logger = logging.getLogger("startup_logger")
@@ -22,7 +22,7 @@ try:
         allowed_headers=ALLOWED_HEADERS,
         allowed_methods=ALLOWED_METHODS,
     )
-except (Exception) as err:
+except(Exception) as err:
     logger.error("failed to add core middlewares for protecting application")
 
 try:
@@ -30,6 +30,10 @@ try:
         path='/predict/human/deepfake/',
         endpoint=predict_human_deepfake,
     )
-except (Exception) as err:
+    application.add_api_route(
+        path='/healthcheck/',
+        endpoint=healthcheck,
+    )
+except(Exception) as err:
     logger.fatal("failed to start ASGI Server application")
     raise SystemExit("Failed to start application, check logs.")
