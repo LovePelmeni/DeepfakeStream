@@ -1,9 +1,15 @@
 from fastapi import UploadFile 
 import logging
 from PIL import Image
+
 import torch
 import fastapi.responses 
 import fastapi.exceptions 
+
+import os
+import numpy
+
+BATCH_SIZE = os.environ.get("BATCH_PROCESSING_SIZE", 1)
 
 logger = logging.getLogger("controller_logger")
 file_handler = logging.FileHandler(filename="controller_logger.log")
@@ -21,7 +27,7 @@ async def predict_human_deepfake(photo: UploadFile = ...):
     based on the showed photo
     """
     try:
-        img = [Image.open(photo)]
+        img = [torch.from_numpy(numpy.asarray(Image.open(photo)))]
         predicted_label = model.forward(img)
         return fastapi.responses.Response(
             status_code=201, content={

@@ -146,6 +146,9 @@ class DeepfakeClassifier(nn.Module):
                 losses.append(loss.item())
             return numpy.mean(losses)
 
+    def save_model(self, test_input, model_path):
+        torch.onnx.export(model=self.network, args=test_input, f=model_path)
+
     def predict(self, images: datasets.DeepFakeClassificationDataset):
         predicted_classes = []
         for img in images:

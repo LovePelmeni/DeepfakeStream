@@ -4,10 +4,14 @@ from torch import nn
 import torch
 from pycuda.driver import cuda
 import numpy
+import logging
+
+logger = logging.getLogger(__name__)
+handler = logging.FileHandler("inference.log")
+logger.addHandler(logger)
 
 
-INFERENCE_TYPE = typing.TypeAlias(
-    typing.Literal[
+INFERENCE_TYPE = typing.Literal[
         'int',
         'fp',
         'fp8',
@@ -19,10 +23,93 @@ INFERENCE_TYPE = typing.TypeAlias(
         'uint8',
         'uint16',
         'uint32'
-    ],
-)
+    ]
+
+def load_engine(engine_path):
+    """
+    Function loads engine from the specified file path
+    location
+    """
+    with open(engine_path, mode='rb') as engine:
+        engine_content = engine.read()
+    runtime = trt.Runtime(cuda.Device(0).make_context())
+    loaded_engine = runtime.deserialize_cuda_engine(engine_content)
+    return loaded_engine
+
+class HostMemoryBinding(object):
+    """
+    Class represents binding unit
+    for a given image object for executing in parallel
+    """
+    def __init__(self, input_device, out_device, img: numpy.ndarray):
+        self.input_device = input_device 
+        self.out_device = out_device 
+        self.img = img 
+
+def run_inference(
+    images: typing.List[torch.Tensor],
+    engine,
+    input_dtype,
+    output_dtype,
+    profiler=None
+):
+        """
+        Function runs testing inference to ensure that model
+        has increased it's performance afterwards
+        """
+
+        if not len(input_data):
+            raise ValueError('tensor should not be empty')
+
+        # rearraning to CHW, because it context of CUDA processing it works reasonably better
+        input_data = [
+            img.permute(2, 0, 1) for img in input_data
+        ]
+
+        with engine.create_execution_context() as context:
+
+            if profiler is not None:
+                context.set_profiler(profiler)
 
 
+            input_bindings = []
+            output_bindings = []
+            host_bindings = []
+
+            for img in images:
+                try:
+                    host_input = numpy.asarray(img, dtype=input_dtype)
+                    host_output = 
+                    gpu_input = cuda.mem_alloc(host_input.nbytes)
+                    gpu_output = cuda.mem_alloc(host_output.nbytes)
+                    obj = HostMemoryBinding(
+                        host_output=host_output, 
+                        gpu_input=int(gpu_input), 
+                        gpu_output=int(gpu_output)
+                    )
+                    input_bindings.append(int(gpu_input))
+                    output_bindings.append(int(gpu_output))
+                    host_bindings.append(obj)
+
+                except(cuda.OutOfMemoryError) as mem_err:
+                    raise RuntimeError("not enough memory to allocate for img")
+
+            for obj in host_bindings:
+                cuda.mempy_htod(obj.img, obj.gpu_input)
+
+            context.execute(
+                bindings=input_bindings.extend(output_bindings)
+            )
+
+            # initializing array of predictions 
+
+            predictions = []
+
+            for obj in host_bindings:
+                cuda.memcpy_dtoh(obj.host_output, obj.gpu_output)
+                prediction = torch.from_numpy(obj.host_output).softmax(dim=0)
+                predictions.append(prediction)
+            return predictions 
 class InferenceBuilder(object):
     """
     Builder class for optimizing model inference 
@@ -30,18 +117,31 @@ class InferenceBuilder(object):
     """
 
     def __init__(self,
-                 network: nn.Module,
+                 model_path: str,
                  input_dtype: INFERENCE_TYPE,
                  output_dtype: INFERENCE_TYPE,
                  input_size: tuple,
                  output_size: tuple,
                  maximum_batch_size: int,
                  ):
+
         self._input_shape = input_size 
         self._output_shape = output_size
         self._logger = trt.Logger(trt.Logger.INFO)
         self._builder = trt.Builder(self._logger)
         self._network = self._builder.create_network()
+        self.profiler = trt.Profiler()
+
+        parser = trt.OnnxParser(self._network)
+        try:
+            with open(model_path, mode='rb') as model_file:
+                parser.parse(model_file.read())
+        except(Exception) as err:
+            logger.debug(err)
+            raise RuntimeError('failed to load model, invalid path')
+        
+        self.engine = trt.create_cuda_engine(self._network)
+        self.engine.profiling = True
 
         # configuring inference settings for the model
         self.configure(
@@ -60,14 +160,15 @@ class InferenceBuilder(object):
         output_size,
         maximum_batch_size
     ):
-        in_dtype = self._get_prec(input_dtype)
-        out_dtype = self._get_prec(output_dtype)
+
+        self.input_dtype = self._get_prec(input_dtype)
+        self.output_dtype = self._get_prec(output_dtype)
         self._builder.maximum_batch_size = maximum_batch_size
 
         self._network.add_input(name='input_tensor',
-                                shape=input_size, dtype=in_dtype)
+                                shape=input_size, dtype=self.input_dtype)
         self._network.add_output(name='output_tensor',
-                                 shape=output_size, dtype=out_dtype)
+                                 shape=output_size, dtype=self.output_dtype)
 
     def _get_prec(self, prec):
         match(prec):
@@ -90,69 +191,25 @@ class InferenceBuilder(object):
                 trt.int8_mode = True
                 return trt.int8
 
-    def _test_inference(self, test_input_tensor: torch.Tensor):
-        """
-        Function runs testing inference to ensure that model
-        has increased it's performance afterwards
-        """
-        if not len(test_input_tensor):
-            raise ValueError('tensor should not be empty')
+    def run_test_inference(self, input_data):
+        predictions = run_inference(
+            engine=self.engine, 
+            input_dtype=self.input_dtype, 
+            output=self.output_dtype,
+            input_data=input_data
+        )
+        return predictions
 
-        # rearraning to CHW, because it context of CUDA processing it works reasonably better
-
-        test_input_tensor = test_input_tensor.transpose(2, 0, 1)
-        self.engine = trt.create_cuda_engine(self._network)
-        self.engine.profiling = True
-
-        with self.engine.create_execution_context() as context:
-
-            # allocating memory for the inference to be executed
-
-            allocated_input_mem = cuda.mem_alloc(test_input_tensor.nbytes)
-
-            cuda.memcpy_htod(
-                allocated_input_mem, 
-                test_input_tensor.contiguous().numpy()
-            )
-            # allocating memory for the output on the GPU using cuda
-            allocated_output_mem = cuda.mem_alloc(self._output_shape)
-            context.execute_v2(
-                bindings=[
-                    int(allocated_input_mem), 
-                    int(allocated_output_mem)
-                ]
-            )
-            # transfering output back to the cpu
-            output = numpy.zeros(shape=self._output_shape, dtype=numpy.float32)
-            cuda.memcpy_dtoh(output, allocated_output_mem)
-
-
-    def get_benchmarks(self):
-        """
-        Function return benchmarks 
-        for tensorRT accelerated inference
-        """
-        profile = self.engine.get_profile()
-        return {
-            'average_exec_time': profile.get('average_time', None),
-            'max_exec_time': profile.get('max_time', None),
-            'min_exec_time': profile.get('min_time', None),
-            'working_memory_used': profile.get('working_memory', None),
-            'device_memory_used': profile.get('device_memory', None)
-        }
-
-    def _export_optimized_network(self, model, input_example=None):
+    def _export_optimized_network(self, input_example=None):
         """
         Function, which exports optimized Network
         to ONNX format
         """
         if not input_example:
-            input_example = torch.randn(size=self._input_shape)
-
-        torch.onnx.export(
-            model=model,
-            args=(input_example,),
-            verbose=True,
-            f='models/inf_deepfake_model.onnx',
-            opset_version='9'
-        )
+            input_example = torch.randn(
+                size=tuple([1] + [param for param in self._input_shape])
+            )
+        with open("./models/optimized_model.trt", mode='wb') as model_file:
+            model_file.write(self.engine.serialize())
+        model_file.close()
+        
