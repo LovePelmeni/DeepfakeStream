@@ -18,7 +18,7 @@ def get_training_texture_augmentations():
             albumentations.GaussianBlur(p=0.5),
             albumentations.HorizontalFlip(p=0.5),
             albumentations.OneOf(
-                [
+                transforms=[
                     IsotropicResize(
                         interpolation_down=cv2.INTER_AREA,
                         interpolation_up=cv2.INTER_CUBIC
