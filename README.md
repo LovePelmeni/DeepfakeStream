@@ -39,11 +39,17 @@ If you are interested in scrutinizing any of the aforementioned stages, recommen
 
 ### Loss function
 
+As a loss function for this problem, we decided to use 
+Focal Loss, which is proved to perform reasonably well on 
+imbalanced dataset and penalize dubious predictions of the model.
+
 ### Evaluation metrics
 
+One of the really common ones are F1-Score and ROC-AUC, because
+they fit fairly well for binary classification tasks.
 # Monitoring
 
-## Assestment metrics
+### Assestment metrics
 
 for evaluating such a ML system, we've splitted metrics into several layers.
 
