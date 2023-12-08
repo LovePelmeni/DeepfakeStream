@@ -18,9 +18,9 @@ application = fastapi.FastAPI(version=VERSION)
 try:
     application.add_middleware(
         middleware_class=cors.CORSMiddleware,
-        allowed_origins=ALLOWED_ORIGINS,
-        allowed_headers=ALLOWED_HEADERS,
-        allowed_methods=ALLOWED_METHODS,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_headers=ALLOWED_HEADERS,
+        allow_methods=ALLOWED_METHODS,
     )
 except(Exception) as err:
     logger.error("failed to add core middlewares for protecting application")
@@ -29,10 +29,12 @@ try:
     application.add_api_route(
         path='/predict/human/deepfake/',
         endpoint=predict_human_deepfake,
+        methods=['POST']
     )
     application.add_api_route(
         path='/healthcheck/',
         endpoint=healthcheck,
+        methods=['GET']
     )
 except(Exception) as err:
     logger.fatal("failed to start ASGI Server application")

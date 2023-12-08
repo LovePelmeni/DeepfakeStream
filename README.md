@@ -6,10 +6,15 @@ Welcome to the design document for our Online RESTful Machine Learning-powered s
 # Technologies
 
 **Main Programming Language:** Python (v3.10)
+
 **Modeling:** Pytorch (v)
+
 **Image Augmentation libraries:** albumentations (v), torchvision (v)
+
 **Analytics and Data Management:** opencv2 (v), numpy (v), pandas (v)
+
 **Plot and Visualization:** matplotlib (v), seaborn (v)
+
 **Deployment:** FastAPI (v)
 
 # Data

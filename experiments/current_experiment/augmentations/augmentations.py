@@ -7,9 +7,18 @@ import numpy
 cv2.setNumThreads(0)
 
 def apply_cutout_augmentation(img: numpy.ndarray):
+    """
+    Applies random cutout augmentation 
+    of mouth or half of the face to make network 
+    better at considering different features for 
+    predicting the final outcome
+    
+    Args:
+        - img - image with human face for augmentation
+    """
     pass
 
-def get_training_texture_augmentations():
+def get_training_texture_augmentations(HEIGHT, WIDTH):
     """
     Function returns domain-specific augmentations
     settings for training set
@@ -26,15 +35,18 @@ def get_training_texture_augmentations():
                 transforms=[
                     IsotropicResize(
                         interpolation_down=cv2.INTER_AREA,
-                        interpolation_up=cv2.INTER_CUBIC
+                        interpolation_up=cv2.INTER_CUBIC,
+                        target_size=(HEIGHT, WIDTH)
                     ),
                     IsotropicResize(
                         interpolation_down=cv2.INTER_AREA,
                         interpolation_up=cv2.INTER_LINEAR,
+                        target_size=(HEIGHT, WIDTH),
                     ),
                     IsotropicResize(
                         interpolation_down=cv2.INTER_LINEAR,
-                        interpolation_up=cv2.INTER_LINEAR
+                        interpolation_up=cv2.INTER_LINEAR,
+                        target_size=(HEIGHT, WIDTH)
                     ),
                 ]
             ),
@@ -56,16 +68,17 @@ def get_training_texture_augmentations():
     )
 
 
-def get_validation_augmentations(size: int):
+def get_validation_augmentations(HEIGHT: int, WIDTH: int):
     return albumentations.Compose(
         transforms=[
             IsotropicResize(
                 interpolation_down=cv2.INTER_AREA,
-                interpolation_up=cv2.INTER_LINEAR
+                interpolation_up=cv2.INTER_LINEAR,
+                target_size=(HEIGHT, WIDTH)
             ),
             albumentations.PadIfNeeded(
-                min_height=size,
-                min_width=size,
+                min_height=HEIGHT,
+                min_width=WIDTH,
                 border_mode=cv2.BORDER_CONSTANT
             )
         ]

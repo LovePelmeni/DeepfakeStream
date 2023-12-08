@@ -19,10 +19,16 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
 
     def __init__(self,
                  interpolation_down: cv2.INTER_AREA,
-                 interpolation_up: cv2.INTER_CUBIC
+                 interpolation_up: cv2.INTER_CUBIC,
+                 target_size: typing.Tuple[int]
                  ):
         self.interpolation_down = interpolation_down
         self.interpolation_up = interpolation_up
+        self.target_size = target_size
+
+        if len(self.target_size) != 2:
+            raise RuntimeError(
+            "Invalid target image size. Should be tuple of height and width")
 
     def _get_interpolation_policy(self, image, target_size: int):
         """
@@ -76,13 +82,13 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
             new_width = int(new_height * ratio)
         return new_height, new_width
 
-    def apply(self, img: typing.Union[Image, numpy.ndarray], target_size: int):
+    def apply(self, image: numpy.ndarray):
         try:
             if not isinstance(img, numpy.ndarray):
                 img = numpy.asarray(img)
 
-            ratio_h, ratio_w = self._get_aspect_ratio(img, target_size)
-            int_policy = self._get_interpolation_policy(img, target_size)
+            ratio_h, ratio_w = self._get_aspect_ratio(img, self.target_size)
+            int_policy = self._get_interpolation_policy(img, self.target_size)
             return cv2.resize(
                 img, 
                 (ratio_h, ratio_w), 

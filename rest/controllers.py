@@ -18,10 +18,12 @@ file_handler = logging.FileHandler(filename="controller_logger.log")
 logger.addHandler(logger)
 
 
+network = None
 try:
-    network = torch.jit.load("models/inf_deepfake_model.onnx")
+    network = torch.load("models/inf_deepfake_model.onnx")
 except(FileNotFoundError) as err:
-    raise SystemExit("Failed to load model file, check logs.")
+    # raise SystemExit("Failed to load model file, check logs.")
+    pass
 
 
 async def predict_human_deepfake(request: Request):
