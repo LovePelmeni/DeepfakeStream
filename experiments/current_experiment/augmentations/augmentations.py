@@ -1,10 +1,13 @@
 import albumentations
 from albumentations import transforms
 import cv2
-from src import IsotropicResize
+from experiments.current_experiment.augmentations.src import IsotropicResize
+import numpy
 
 cv2.setNumThreads(0)
 
+def apply_cutout_augmentation(img: numpy.ndarray):
+    pass
 
 def get_training_texture_augmentations():
     """
@@ -13,9 +16,11 @@ def get_training_texture_augmentations():
     """
     return albumentations.Compose(
         transforms=[
-            transforms.ImageCompression(quality_lower=60),
-            albumentations.GaussNoise(p=0.1),
-            albumentations.GaussianBlur(p=0.5),
+            transforms.ImageCompression(
+                quality_lower=60, 
+                quality_upper=100, 
+                compression_type=0
+            ),
             albumentations.HorizontalFlip(p=0.5),
             albumentations.OneOf(
                 transforms=[

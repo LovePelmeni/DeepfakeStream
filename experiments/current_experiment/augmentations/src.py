@@ -91,3 +91,9 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
 
         except (TypeError):
             raise RuntimeError('Invalid image format, convertion failed')
+
+
+
+
+
+

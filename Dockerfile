@@ -1,4 +1,5 @@
 FROM python:3.9-latest as app
+LABEL maintainer="kirklimushin@gmail.com"
 
 ENV python_user=python_user
 ENV PYTHONUNBUFFERED=1
