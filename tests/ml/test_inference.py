@@ -3,7 +3,6 @@ import torch
 import numpy
 from src.inference_time import measure_inference_time
 
-
 class NetworkInferenceTestCase(unittest.TestCase):
 
     def setUp(self, 

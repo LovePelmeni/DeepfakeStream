@@ -2,12 +2,13 @@ FakeStream
 
 Video-streaming service, written in Python, which handles video streaming content
 for analyzing human faces and classifying them as being deepfaked or not. 
-Powered by popular open-source technologies, such as PyTorch, TensorRT & ONNX, which dramatically decreases inference time and provides ability to execute traffic in parallel GPUs.
+Powered by popular open-source technologies.
 
 ---
 Versioning and Changelog
 
 version: (1.0.0)
+
 ---
 
 ---

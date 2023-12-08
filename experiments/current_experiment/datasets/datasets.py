@@ -1,7 +1,6 @@
 from torch.utils import data
 import numpy
 
-
 class DeepFakeClassificationDataset(data.Dataset):
 
     def __init__(self, labels, images, transforms=None, weights=None):
