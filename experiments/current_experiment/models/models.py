@@ -1,5 +1,4 @@
 import torch
-import torchsummary
 from torch import nn
 from torch import optim
 import logging
@@ -11,13 +10,18 @@ from datasets import datasets
 from torch.utils import data
 import numpy
 from regularization import EarlyStopping
+import os
 
 
 logger = logging.getLogger("model_inference")
 handler = logging.FileHandler("inference.log")
 logger.addHandler(handler)
 
+
+CHECKPOINT_SAVE_PATH = "experiments/current_experiment/checkpoints/"
+
 class DeepfakeClassifier(nn.Module):
+
     """
     Classification model for recognizing between
     deepfakes of human face and real world human faces
@@ -47,8 +51,9 @@ class DeepfakeClassifier(nn.Module):
         self.early_start = early_start
         self.early_dataset = early_dataset
 
-        self.network = models.resnet101(
-            weights=models.ResNet101_Weights).to(self.training_device)
+        self.network = models.efficientnet_b5(
+            weights=models.EfficientNet_B5_Weights
+        ).to(self.training_device)
 
         self.optimizer = optim.Adam(
             lr=learning_rate,
@@ -75,7 +80,7 @@ class DeepfakeClassifier(nn.Module):
                     'loss': loss,
                     'optimizer_state': self.optimizer.state_dict().__dict__,
                     'network_state': self.network.state_dict().__dict__,
-                }
+                }, f=os.path.join(CHECKPOINT_SAVE_PATH, "state_epoch_%s" % str(epoch)),
             )
         except (FileNotFoundError, Exception) as err:
             logger.warning("failed to save checkpoint for the model")
@@ -110,7 +115,8 @@ class DeepfakeClassifier(nn.Module):
 
                 self.optimizer.step()
         
-            self.lr_scheduler.step(epoch=epoch)
+            self.lr_scheduler.step()
+
             best_class_loss = min(best_class_loss, loss.item())
 
             if epoch % self.checkpoint_per_epoch == 0:
@@ -143,7 +149,9 @@ class DeepfakeClassifier(nn.Module):
 
         with torch.no_grad():
             metrics = []
+
             for labels, images in loader:
+
                 predictions = self.network.forward(
                     images.to(self.training_device)).cpu()
 
