@@ -3,3 +3,4 @@ __pycache__
 __pytest_cache__
 .DS_Store
 df_env
+.ipynb_checkpoints
