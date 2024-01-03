@@ -25,8 +25,11 @@ WORKDIR /project/dir/${python_user}
 # copying main functionality inside the container
 
 COPY ./models ./models
+COPY ./env ./env
 COPY ./rest ./rest
 COPY ./deployment/entrypoint.sh ./entrypoint.sh
+COPY ./src ./src
+COPY ./tests ./tests
 
 
 # copying additional configurations for linters, formatters and dependency managers
@@ -50,3 +53,7 @@ RUN pip install -r requirements/prod_requirements.txt
 # running deployment pipeline
 RUN chmod +x ./entrypoint.sh
 ENTRYPOINT ["sh", "entrypoint.sh"]
+
+
+
+
