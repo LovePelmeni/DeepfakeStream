@@ -9,7 +9,15 @@ def measure_inference_time(
 ):
     """
     Function measures inference time for a given 
-    network 
+    network
+
+    Args:
+        - repetitions - number of times to measure 
+        inference on a given set of "test_data"
+    
+    Returns:
+        - avg time it takes for the network
+        to process given batch of test data (in miliseconds)
     """
     network = network.cuda()
     test_data = test_data.cuda()
