@@ -1,7 +1,7 @@
 import albumentations
 from albumentations import transforms
 import cv2
-from experiments.current_experiment.augmentations.src import IsotropicResize
+from src.augmentations.resize import IsotropicResize
 import numpy
 
 cv2.setNumThreads(0)
@@ -69,6 +69,7 @@ def get_training_texture_augmentations(HEIGHT, WIDTH):
 
 
 def get_validation_augmentations(HEIGHT: int, WIDTH: int):
+
     return albumentations.Compose(
         transforms=[
             IsotropicResize(
@@ -83,3 +84,6 @@ def get_validation_augmentations(HEIGHT: int, WIDTH: int):
             )
         ]
     )
+
+
+
