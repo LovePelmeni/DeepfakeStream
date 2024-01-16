@@ -28,6 +28,8 @@ Blue represents the least used features, while red stands for the most
 important and highly impactful ones, which drives the network 
 to make the prediction the most. 
 
+# Other considerations 
+
 Other ubiqutious methods, like KernelSHAP (Kernel Shapley Values)
 and LIME (Local Interpretable Model Agnostic Explanations) ended up
 not working well enough, and giving less interpretable explanations
