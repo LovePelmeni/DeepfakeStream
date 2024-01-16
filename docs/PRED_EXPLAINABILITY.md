@@ -34,4 +34,4 @@ in contrast with GradCAM.
 
 # Implementation
 You can find the project's source code with integration under:
-    - src/explainers/explainers.py
+    - `src/explainers/explainers.py`
