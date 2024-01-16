@@ -6,14 +6,29 @@ to guide it's predictions can be beneficial in first place.
 In our research, we've leveraged several techniques and 
 explained local and global image features, relevant to the dataset.
 
-### Lime (Linear Model-Augnostic Estimations)
 
-[]("./imgs/lime/lime_analysis.png")
+Visual Interpretation Methods
+### Gradient-based Class Application Mapping (GradCAM)
 
-### KernelSHAP (Version of Shapley values, designed for image explanation)
+One of the popular and powerful methods for interpreting 
+deep learning networks, which been empirically proven 
+to work effetively with images.
 
-[]("./imgs/shap/shapley_analysis.png")
+Original Paper for more details: https://arxiv.org/abs/1610.02391
 
+Example on the real image:
 
+![interpretation of human faces]("./imgs/grad_cam/grad_cam_analysis.png")
 
+Here, the area of importance is indicated by the color of the gradient.
+Blue represents the least used features, while red stands for the most
+important and highly impactful ones, which drives the network 
+to make the prediction the most. 
 
+Other ubiqutious methods, like KernelSHAP (Kernel Shapley Values)
+and LIME (Local Interpretable Model Agnostic Explanations) ended up
+not working well enough, and giving less interpretable explanations
+in contrast with GradCAM.
+
+You can find the project's source code with integration down here:
+    - src/explainers/explainers.py
