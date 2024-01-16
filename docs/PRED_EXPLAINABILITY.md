@@ -18,7 +18,7 @@ Original Paper for more details: https://arxiv.org/abs/1610.02391
 
 Example on the real image:
 
-![interpretation of human faces]("imgs/grad_cam/grad_cam_analysis.png")
+![interpretation of human faces]("docs/imgs/grad_cam/grad_cam_analysis.png")
 
 Here, the area of importance is indicated by the color of the gradient.
 Blue represents the least used features, while red stands for the most
