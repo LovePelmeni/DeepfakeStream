@@ -6,8 +6,8 @@ to guide it's predictions can be beneficial in first place.
 In our research, we've leveraged several techniques and 
 explained local and global image features, relevant to the dataset.
 
+# Visual Interpretation Methods
 
-Visual Interpretation Methods
 ### Gradient-based Class Application Mapping (GradCAM)
 
 One of the popular and powerful methods for interpreting 
@@ -32,5 +32,6 @@ and LIME (Local Interpretable Model Agnostic Explanations) ended up
 not working well enough, and giving less interpretable explanations
 in contrast with GradCAM.
 
-You can find the project's source code with integration down here:
+# Implementation
+You can find the project's source code with integration under:
     - src/explainers/explainers.py
