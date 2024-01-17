@@ -84,11 +84,12 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
 
     def apply(self, image: numpy.ndarray):
         try:
-            if not isinstance(img, numpy.ndarray):
-                img = numpy.asarray(img)
+            if not isinstance(image, numpy.ndarray):
+                img = numpy.asarray(image)
 
             ratio_h, ratio_w = self._get_aspect_ratio(img, self.target_size)
             int_policy = self._get_interpolation_policy(img, self.target_size)
+            
             return cv2.resize(
                 img, 
                 (ratio_h, ratio_w), 
