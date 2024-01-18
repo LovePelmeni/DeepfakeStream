@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger("dataset_logger")
 
 
-class ImageDataset(data.Dataset):
+class DeepfakeDataset(data.Dataset):
     """
     Dataset class, used
     for formatting data to make 

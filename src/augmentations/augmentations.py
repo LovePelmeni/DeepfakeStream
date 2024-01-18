@@ -18,7 +18,7 @@ def apply_cutout_augmentation(img: numpy.ndarray):
     """
     pass
 
-def get_training_texture_augmentations(HEIGHT, WIDTH):
+def get_training_augmentations(HEIGHT: int, WIDTH: int):
     """
     Function returns domain-specific augmentations
     settings for training set

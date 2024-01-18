@@ -29,7 +29,10 @@ def measure_inference_time(
         - average time across all repetitions in milliseconds.
     """
     # generating data for running inference
-    gpu_data = torch.stack([torch.randn(size=img_shape).to(torch.float32).permute(2, 0, 1) for img in range(batch_size)])
+    gpu_data = torch.stack([
+        torch.randn(size=img_shape).to(torch.float32).permute(2, 0, 1) 
+        for img in range(batch_size)
+    ])
     
     # connecting neural network
     gpu_network = network.to(train_device)
@@ -54,3 +57,6 @@ def measure_inference_time(
             time = starter.elapsed_time(ender)
             times.append(time / 100) # converting to seconds by dividing by 100
     return numpy.mean(times)
+
+
+

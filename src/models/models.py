@@ -10,10 +10,10 @@ import pathlib
 from tqdm import tqdm
 import gc
 from src.evaluators import sliced_evaluator
+from torch.utils.tensorboard.writer import SummaryWriter
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 trainer_logger.setLevel("warning")
-
 
 class NetworkPipeline(object):
     """
@@ -52,11 +52,11 @@ class NetworkPipeline(object):
                  max_epochs: int,
                  batch_size: int,
                  optimizer: nn.Module,
-                 major_version: int,
-                 minor_version: int,
+                 checkpoint_dir: str,
+                 log_dir: str,
                  lr_scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
-                 loader_num_workers: int = 1
+                 loader_num_workers: int = 1,
                  ):
 
         self.network = network.to(train_device)
@@ -74,13 +74,11 @@ class NetworkPipeline(object):
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
+        self.summary_writer = SummaryWriter(log_dir=log_dir)
 
         self.loader_num_workers = loader_num_workers
         self.seed_generator = torch.Generator()
         self.seed_generator.manual_seed(0)
-
-        self.major_network_version = major_version
-        self.minor_network_version = minor_version
 
     @staticmethod
     def seed_loader_worker(worker_id: int):
@@ -95,12 +93,18 @@ class NetworkPipeline(object):
         pathlib.Path("./checkpoints").rmdir()
         pathlib.Path("./checkpoints").mkdir(exist_ok=True)
 
-    def save_checkpoint(self, loss: float, epoch: int):
+    def save_checkpoint(self, 
+        major_version: int,
+        minor_version: int, 
+        loss: float, 
+        epoch: int
+    ):
 
         # initializing checkpoints path, in case it is not initialized
         pathlib.Path("./checkpoints").mkdir(parents=True, exist_ok=True)
 
         # saving checkpoint
+
         torch.save(
             {
                 'network': self.network.cpu().state_dict(),
@@ -121,9 +125,9 @@ class NetworkPipeline(object):
                     for device in range(torch.cuda.device_count())
                 ]
 
-            }, f='checkpoints/model_%s.%s.%s.pt' % (
-                str(self.major_network_version),
-                str(self.minor_network_version),
+            }, f='checkpoints/checkpoint_%s.%s.%s.pt' % (
+                str(major_version),
+                str(minor_version),
                 str(epoch)
             )
         )
@@ -147,7 +151,7 @@ class NetworkPipeline(object):
 
             epoch_loss = 0
 
-            for imgs, classes in tqdm(loader):
+            for imgs, classes in tqdm(iterable=loader, desc='EPOCH %s' % str(epoch)):
 
                 predictions = self.network.to(self.train_device).forward(
                     imgs.clone().detach().to(self.train_device))
