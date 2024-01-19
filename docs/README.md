@@ -14,6 +14,6 @@ I've listed up list some of the design documents, which you can read and analyze
 - **TECHNICAL_STACK.md** - overview on technical stack, used for the project.
 - **DEPLOYMENT.md** - overview on project's deployment process, key files and strategies.
 - **DRIFT.md** - overview on statistical / non-statistical methods, used for detecting data drift inside the system.
-
+- **AUGMENTATIONS.md** - overview on image augmentations and transformations, applied to the data.
 
 
