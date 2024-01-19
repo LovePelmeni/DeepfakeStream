@@ -6,6 +6,8 @@ from torch.optim import lr_scheduler
 from torch.optim.adamw import AdamW
 from torch.optim.adamax import Adamax
 from torch.optim.rmsprop import RMSprop 
+import pandas
+import os
 
 
 def load_config(config_path: str) -> typing.Dict:
@@ -64,14 +66,14 @@ def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
     if name.lower() == 'reducelronplateau':
 
         factor = config_dict.get("factor")
-        reduce = config_dict.get("reduce", "min")
+        reduce_lr = config_dict.get("reduce", "min")
         min_lr = config_dict.get("min_lr")
         patience = config_dict.get("patience")
 
         return lr_scheduler.ReduceLROnPlateau(
             optimizer=optimizer,
             factor=factor,
-            reduce=reduce,
+            reduce=reduce_lr,
             patience=patience,
             min_lr=min_lr
         )
@@ -88,12 +90,18 @@ def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
         )
 
 def load_images(source_path: str):
-    pass 
+    """
+    Loads local .mp4 video or image
+    files, presented in the source path
+    """
+    return [
+        os.path.join(source_path, file_path)
+        for file_path in os.listdir(source_path)
+    ]
 
 def load_labels_to_csv(source_path: str):
-    pass 
-
-def load_data(source_path: str):
-    pass
-
-
+    """
+    Loads labels for the dataset
+    from specified source path arg.
+    """
+    return pandas.read_csv(source_path) 

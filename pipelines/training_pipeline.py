@@ -117,14 +117,14 @@ def training_pipeline():
         image_names = labels_file['videoName'].apply(lambda path: path.split("/")[-1])
 
         # loading training data
-        train_image_paths = utils.get_train_data(train_dir)
+        train_image_paths = utils.load_images(train_dir)
 
         train_image_labels = image_names[
             numpy.where(
                 numpy.char.endswith(
                     train_image_paths, image_names
                 )
-            )
+            )[0]
         ]
 
         train_augmentations = augmentations.get_training_augmentations(
@@ -133,14 +133,14 @@ def training_pipeline():
         )
 
         # loading validation data
-        val_image_paths = utils.get_val_data(valid_dir)
+        val_image_paths = utils.load_images(valid_dir)
 
         val_image_labels = image_names[
             numpy.where(
                 numpy.char.endswith(
                     train_image_paths, image_names
                 )
-            )
+            )[0]
         ]
 
         val_augmentations = augmentations.get_validation_augmentations(
@@ -265,7 +265,5 @@ def training_pipeline():
     print('training completed.')
 
 training_pipeline()
-
-
 
 
