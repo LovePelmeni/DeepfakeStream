@@ -49,11 +49,16 @@ which can immitate different day times)
 
 #### Contrast-based techniques
 
+<p align="center">
+  <a><img src="./imgs/augmentations/randombrightnesscont.png" style="width: 50%; height: 50%"></a>
+</p>
+
 - RandomBrightnessContrast (randomly tweaks the brightness of the image, within the range of the specified deviation)
 
 #### Scale Transformations
 
-- Isotropic Resize (popular technique for resizing images)
+- Isotropic Resize (popular technique for resizing images, 
+  which involves dynamic choice of interpolation type, based type of resize to perform: upscale or downscale)
 
 
 ### Validation augmentations
@@ -65,3 +70,5 @@ For futher validation, we can provide additional common labels, explaining
 different properties of the picture (for human it can be skin color, gender, presence of beard, etc..).
 While this idea may introduce additional costs of labeling, it ensures, that model
 does not descriminate people against certain essential properties I've aforementioned.
+
+
