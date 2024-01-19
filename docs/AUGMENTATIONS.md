@@ -3,7 +3,7 @@
 Blindly passing raw images to the network with a desparate hope, it will figure
 everything out on it's own, is usually a terrible idea for achieving good level
 of performance. Adding variation to your data, can not only
-help to increase overall robustness of the network, but also more reliable
+help to increase overall robustness of the network, but also make it more reliable and confident
 in the face of uncertainty.
 
 # Scope
