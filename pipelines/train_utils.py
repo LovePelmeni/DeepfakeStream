@@ -86,11 +86,14 @@ def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
             step_size=step_size,
             gamma=gamma
         )
-    
 
+def load_images(source_path: str):
+    pass 
 
+def load_labels_to_csv(source_path: str):
+    pass 
 
-
-
+def load_data(source_path: str):
+    pass
 
 

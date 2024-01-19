@@ -16,6 +16,7 @@ from src.losses import losses
 from src.datasets import datasets
 from src.augmentations import augmentations
 
+
 info_logger = logging.getLogger("pipeline_info_logger")
 err_logger = logging.getLogger("pipeline_error_logger")
 
@@ -44,11 +45,11 @@ def training_pipeline():
     # data and output settings
     arg("--train-data-path", type=str, required=True, dest='train_data_path', help='path to the training data')
     arg("--val-data-path", type=str, required=True, dest='val_data_path', help='path to the validation data')
-    arg("--output-dir", type=str, default='weights/', dest='output_dir', help='path for storing network weights')
-    arg("--checkpoint-dir", type=str, default='checkpoints/', dest='checkpoint_dir', help='path for storing training checkpoints')
-    arg('--config-dir', type=str, dest='config', help='path to .json data configuration file.')
-    arg("--log-dir", type=str, default='logs/', dest='log_dir', help='directory for storing logs')
-
+    arg("--labels-path", type=str, required=True, dest='labels_path', help='path to CSV / JSON file, containing labels for training and validation data')
+    arg("--output-path", type=str, default='weights/', dest='output_dir', help='path for storing network weights')
+    arg("--checkpoint-path", type=str, default='checkpoints/', dest='checkpoint_dir', help='path for storing training checkpoints')
+    arg('--config-path', type=str, dest='config', help='path to .json data configuration file.')
+    arg("--log-path", type=str, default='logs/', dest='log_dir', help='directory for storing logs')
     # hardware settings
     arg("--use-cuda", type=bool, default=False, dest='use_cuda', help='presence of cuda during training')
     arg("--use-cpu", type=bool, default=True, dest='use_cpu', help='presence of CPU during training')
@@ -88,6 +89,7 @@ def training_pipeline():
 
     train_dir = pathlib.Path(args.train_data_path)
     valid_dir = pathlib.Path(args.val_data_path)
+    labels_dir = pathlib.Path(args.labels_path)
     output_dir = pathlib.Path(args.output_dir)
     log_dir = pathlib.Path(args.log_dir + "/" + "exp_%s" % args.exp_prefix)
     config_dir = pathlib.Path(args.config_dir)
@@ -111,15 +113,35 @@ def training_pipeline():
 
     try:
         exp_config = utils.load_config(config_dir) # data configuration (dict-like object)
+        labels_file = utils.load_labels_to_csv(labels_dir) # loading data annotations
+        image_names = labels_file['videoName'].apply(lambda path: path.split("/")[-1])
 
-        train_image_paths, train_image_labels = utils.get_train_data(train_dir)
+        # loading training data
+        train_image_paths = utils.get_train_data(train_dir)
+
+        train_image_labels = image_names[
+            numpy.where(
+                numpy.char.endswith(
+                    train_image_paths, image_names
+                )
+            )
+        ]
 
         train_augmentations = augmentations.get_training_augmentations(
             HEIGHT=exp_config['data']['height'], 
             WIDTH=exp_config['data']['width']
         )
-        
-        val_image_paths, val_image_labels = utils.get_val_data(valid_dir)
+
+        # loading validation data
+        val_image_paths = utils.get_val_data(valid_dir)
+
+        val_image_labels = image_names[
+            numpy.where(
+                numpy.char.endswith(
+                    train_image_paths, image_names
+                )
+            )
+        ]
 
         val_augmentations = augmentations.get_validation_augmentations(
             HEIGHT=exp_config['data']['height'], 
