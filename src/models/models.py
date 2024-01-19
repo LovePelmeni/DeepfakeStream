@@ -53,7 +53,6 @@ class NetworkPipeline(object):
                  batch_size: int,
                  optimizer: nn.Module,
                  checkpoint_dir: str,
-                 log_dir: str,
                  lr_scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
@@ -74,7 +73,6 @@ class NetworkPipeline(object):
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
-        self.summary_writer = SummaryWriter(log_dir=log_dir)
 
         self.loader_num_workers = loader_num_workers
         self.seed_generator = torch.Generator()
@@ -125,7 +123,8 @@ class NetworkPipeline(object):
                     for device in range(torch.cuda.device_count())
                 ]
 
-            }, f='checkpoints/checkpoint_%s.%s.%s.pt' % (
+            }, f='%s/checkpoint_%s.%s.%s.pt' % (
+                self.checkpoint_dir,
                 str(major_version),
                 str(minor_version),
                 str(epoch)

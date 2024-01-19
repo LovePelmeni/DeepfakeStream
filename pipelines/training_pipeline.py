@@ -32,6 +32,7 @@ info_handler.setLevel(level='info')
 err_logger.addHandler(hdlr=error_handler)
 info_logger.addHandler(hdlr=info_handler)
 
+
 def training_pipeline():
     """
     Training pipeline 
@@ -105,7 +106,7 @@ def training_pipeline():
         err_logger.warn(
             "cunn.benchmark mode has been turned on. \
             Make sure the data has the same size.")
-    
+
     # loading experiment configuration
 
     try:
@@ -140,6 +141,7 @@ def training_pipeline():
             image_labels=val_image_labels,
             augmentations=val_augmentations
         )
+
     except(Exception) as init_err:
         err_logger.error(init_err)
 
@@ -179,8 +181,8 @@ def training_pipeline():
     # training-specific settings
 
     network = utils.load_network(exp_config['network'])
-    optimizer = utils.get_optimizer(exp_config['optimizer'])
-    lr_scheduler = utils.get_lr_scheduler(exp_config['scheduler']) if 'scheduler' in exp_config else None
+    optimizer = utils.get_optimizer(exp_config['optimizer'], model=network)
+    lr_scheduler = utils.get_lr_scheduler(exp_config['scheduler'], optimizer) if 'scheduler' in exp_config else None
 
     loss_function = losses.WeightedLoss(
         name=exp_config['loss']['name'], 
@@ -239,3 +241,9 @@ def training_pipeline():
         double_precision=True
     )
     print('training completed.')
+
+training_pipeline()
+
+
+
+

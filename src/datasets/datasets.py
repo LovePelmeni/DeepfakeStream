@@ -35,10 +35,12 @@ class DeepfakeDataset(data.Dataset):
     def __init__(self,
                  image_paths: typing.List[str],
                  image_labels: typing.List[typing.Union[str, int]],
+                 label_smoothing_eps: float = 0,
                  augmentations=None
                  ):
         self.image_paths = image_paths
         self.image_labels = image_labels
+        self.label_smoothing_eps = label_smoothing_eps
         self.augmentations = augmentations
 
     def __len__(self):
