@@ -63,6 +63,10 @@ which can immitate different day times)
 
 ### Validation augmentations
 
+Augmentations, used for validation set are predominantly inherited
+from the ones, used for training, however, to preserve the initial apperance, all
+color transformations was excluded, as our model is going to be tested against one
+and we want to minimize any visual changes to our original data.
 
 # Additional Improvements on model reliability
 
