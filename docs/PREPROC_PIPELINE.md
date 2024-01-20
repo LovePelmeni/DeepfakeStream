@@ -26,8 +26,11 @@ and their corresponding descriptions
 Json-like file, containing important information about dataset image properties.
 
 -- resize_height - new height to resize images to (used inside augmentations).
+
 -- resize_width - new width to resize images to (used inside augmentations).
+
 -- dataset_type - type of the dataset: 'train', 'valid' or 'test'. It is used for picking right augmentations, based on the type of data.
+
 -- data_type - data precision to use before saving, common choices are float16 and float32
 
 #### Data directory
