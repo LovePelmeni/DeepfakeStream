@@ -47,16 +47,3 @@ class F1Score(nn.Module):
         recall = tp / (tp + fp)
         return 2 * (precision * recall) / (precision + recall) + smooth
 
-
-class RocAuc(nn.Module):
-
-    def forward(self,
-                predicted_labels: numpy.ndarray,
-                true_labels: numpy.ndarray
-                ):
-        areas = []
-        precision = self._calculate_precision()
-        recall = self._calculate_recall()
-        area = numpy.trapz()
-        areas.append(area)
-        return numpy.mean(areas)
