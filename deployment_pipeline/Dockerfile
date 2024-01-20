@@ -33,6 +33,7 @@ COPY ./tests ./tests
 
 
 # copying additional configurations for linters, formatters and dependency managers
+
 COPY ./pyproject.toml ./pyproject.toml
 COPY ./poetry.lock ./poetry.lock
 COPY ./flake8 ./flake8
@@ -53,7 +54,6 @@ RUN pip install -r requirements/prod_requirements.txt
 # running deployment pipeline
 RUN chmod +x ./entrypoint.sh
 ENTRYPOINT ["sh", "entrypoint.sh"]
-
 
 
 
