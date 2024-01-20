@@ -46,7 +46,7 @@ def training_pipeline():
     Training pipeline 
     for running experiments
     """
-    parser = argparse.ArgumentParser(description="Training Pipeline")
+    parser = argparse.ArgumentParser(description="CLI-based Training Pipeline")
     arg = parser.add_argument 
 
     # data and output settings
@@ -213,7 +213,7 @@ def training_pipeline():
 
     # training-specific settings
 
-    network = utils.load_network(exp_config['network'])
+    network = utils.get_efficientnet_network(exp_config['network'])
     optimizer = utils.get_optimizer(exp_config['optimizer'], model=network)
     lr_scheduler = utils.get_lr_scheduler(exp_config['scheduler'], optimizer) if 'scheduler' in exp_config else None
     loss = utils.get_loss(exp_config['loss']['name'])
@@ -276,6 +276,5 @@ def training_pipeline():
     )
     print('training completed.')
 
-training_pipeline()
-
-
+if __name__ == '__main__':
+    training_pipeline()

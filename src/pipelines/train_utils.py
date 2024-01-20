@@ -7,7 +7,50 @@ from torch.optim.adamw import AdamW
 from torch.optim.adamax import Adamax
 from torch.optim.rmsprop import RMSprop 
 import pandas
+import torch
 import os
+import efficientnet_pytorch as effnet
+import logging 
+import numpy
+import cv2
+
+Logger = logging.getLogger("utils_logger")
+
+def resolve_torch_precision(precision: typing.Literal['fp16', 'bfp16', 'fp32', 'int8']):
+    """
+    Returns precision of the model and data
+    Parameters:
+    -----------
+    precision - (str) - precision of the data and model
+    """
+    model_dtype = torch.float32
+
+    if precision == 'int8':
+        model_dtype = torch.int8
+
+    elif precision == 'fp16':
+        model_dtype = torch.float16
+
+    elif precision == 'bfp16':
+        model_dtype = torch.bfloat16
+
+    return model_dtype
+
+def resolve_numpy_precision(precision: typing.Literal['fp16', 'fp32', 'int8']):
+    """
+    Returns precision of the model and data
+    Parameters:
+    -----------
+    precision - (str) - precision of the data and model
+    """
+    if precision == 'int8':
+        return numpy.int8 
+
+    elif precision == 'fp16':
+        return numpy.float16
+
+    elif precision == 'bfp16':
+        return numpy.bfloat16
 
 
 def load_config(config_path: str) -> typing.Dict:
@@ -89,6 +132,26 @@ def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
             gamma=gamma
         )
 
+def get_efficientnet_network(network_name: str):
+    """
+    Loads network, based on the provided name
+    Parameters:
+    -----------
+    lowercased name of the network to load
+    Example:
+        - "efficientnet-b5"
+        - "efficientnet-b7"
+    """
+    try:
+        network: nn.Module = effnet.EfficientNet.from_pretrained(network_name.lower())
+        final_features = network._fc.in_features
+        final_layer = nn.Linear(in_features=final_features, out_features=2)
+        final_features._fc = final_layer
+        return network
+    except(Exception) as err:
+        Logger.error(err)
+        raise RuntimeError("Failed to load network")
+
 def load_images(source_path: str):
     """
     Loads local .mp4 video or image
@@ -105,3 +168,8 @@ def load_labels_to_csv(source_path: str):
     from specified source path arg.
     """
     return pandas.read_csv(source_path) 
+
+def convert_to_jpeg(input_img: numpy.ndarray):
+    success, enc_data = cv2.imencode('jpeg', input_img, cv2.IMREAD_UNCHANGED)
+    if not success: raise ValueError("failed to convert image to jpeg format")
+    return cv2.imdecode(enc_data)
