@@ -33,7 +33,13 @@ info_handler.setLevel(level='info')
 err_logger.addHandler(hdlr=error_handler)
 info_logger.addHandler(hdlr=info_handler)
 
-
+"""
+Pipeline for training networks. 
+Based on experiment configuration.
+Offers CLI for manual training locally,
+or can be executed via specifying '.env' file
+and running corresponding 'train_pipeline.sh' script.
+"""
 
 def training_pipeline():
     """

@@ -10,7 +10,6 @@ import pathlib
 from tqdm import tqdm
 import gc
 from src.evaluators import sliced_evaluator
-from torch.utils.tensorboard.writer import SummaryWriter
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 trainer_logger.setLevel("warning")
@@ -241,8 +240,4 @@ class NetworkPipeline(object):
         self.network.eval()
         batch_imgs = torch.stack(input_images).to(self.train_device)
         predictions = self.network.forward(batch_imgs).cpu()
-        predicted_labels = [
-            torch.argmax(predictions[idx])
-            for idx in range(len(predicted_labels))
-        ]
-        return predicted_labels
+        return predictions
