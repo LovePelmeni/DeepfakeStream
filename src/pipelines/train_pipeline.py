@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import logging
 
 from torch.utils.tensorboard.writer import SummaryWriter
-from pipelines import train_utils as utils
+import train_utils as utils
 
 from src.models import models 
 from src.losses import losses
@@ -54,7 +54,7 @@ def training_pipeline():
     arg("--use-cuda", type=bool, default=False, dest='use_cuda', help='presence of cuda during training')
     arg("--use-cpu", type=bool, default=True, dest='use_cpu', help='presence of CPU during training')
     arg("--num-workers", type=int, default=3, dest='num_workers', help='number of CPU threads to be involved during training')
-    arg("--gpu-id", type=str, default='', help='ID of GPU to use for training')
+    arg("--gpu-id", type=str, default='', required=False, help='ID of GPU to use for training')
     arg("--use-cudnn-bench", type=str, dest='cudnn_bench', default=False, help='In case your data has the same shape, turning this option to "True" can dramatically speed up on training')
 
     # reproducability settings
@@ -173,6 +173,10 @@ def training_pipeline():
     # setting up hardware settings
 
     device_name = "cpu"
+    
+    if args.use_cuda and args.use_cpu:
+        raise RuntimeError("You cannot use CPU and GPU at the same time. \
+        Turn one of the options to False")
 
     if args.use_cuda:
 
