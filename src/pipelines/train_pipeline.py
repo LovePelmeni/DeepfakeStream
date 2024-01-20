@@ -34,6 +34,7 @@ err_logger.addHandler(hdlr=error_handler)
 info_logger.addHandler(hdlr=info_handler)
 
 
+
 def training_pipeline():
     """
     Training pipeline 
@@ -107,7 +108,7 @@ def training_pipeline():
     if (args.cudnn_bench == True):
         err_logger.warn(
             "cunn.benchmark mode has been turned on. \
-            Make sure the data has the same size.")
+            Make sure the data has the same size.") 
 
     # loading experiment configuration
 
@@ -209,9 +210,10 @@ def training_pipeline():
     network = utils.load_network(exp_config['network'])
     optimizer = utils.get_optimizer(exp_config['optimizer'], model=network)
     lr_scheduler = utils.get_lr_scheduler(exp_config['scheduler'], optimizer) if 'scheduler' in exp_config else None
+    loss = utils.get_loss(exp_config['loss']['name'])
 
     loss_function = losses.WeightedLoss(
-        name=exp_config['loss']['name'], 
+        loss_function=loss, 
         weights=exp_config['loss']['weights'],
         weight_type=exp_config['loss']['type']
     )
