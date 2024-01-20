@@ -1,7 +1,8 @@
 import albumentations
 from albumentations import transforms
+import albumentations
 import cv2
-from src.augmentations.resize import IsotropicResize
+from src.augmentations import resize
 import numpy
 
 cv2.setNumThreads(0)
@@ -18,11 +19,16 @@ def apply_cutout_augmentation(img: numpy.ndarray):
     """
     pass
 
-def get_training_augmentations(HEIGHT: int, WIDTH: int):
+def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compose:
     """
     Function returns domain-specific augmentations
     settings for training set
+    
+    NOTE:
+        expected image need to have .JPEG format.
+        Make sure to apply conversion, before
     """
+    
     return albumentations.Compose(
         transforms=[
             transforms.ImageCompression(
@@ -33,17 +39,17 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int):
             albumentations.HorizontalFlip(p=0.5),
             albumentations.OneOf(
                 transforms=[
-                    IsotropicResize(
+                    resize.IsotropicResize(
                         interpolation_down=cv2.INTER_AREA,
                         interpolation_up=cv2.INTER_CUBIC,
-                        target_size=(HEIGHT, WIDTH)
+                        target_size=(HEIGHT, WIDTH),
                     ),
-                    IsotropicResize(
+                    resize.IsotropicResize(
                         interpolation_down=cv2.INTER_AREA,
                         interpolation_up=cv2.INTER_LINEAR,
                         target_size=(HEIGHT, WIDTH),
                     ),
-                    IsotropicResize(
+                    resize.IsotropicResize(
                         interpolation_down=cv2.INTER_LINEAR,
                         interpolation_up=cv2.INTER_LINEAR,
                         target_size=(HEIGHT, WIDTH)
@@ -57,7 +63,6 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int):
                     albumentations.HueSaturationValue(p=0.5),
                 ]
             ),
-            albumentations.ToGray(p=0.2),
             albumentations.ShiftScaleRotate(
                 shift_limit=1,
                 scale_limit=0.7,
@@ -67,12 +72,11 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int):
         ]
     )
 
-
-def get_validation_augmentations(HEIGHT: int, WIDTH: int):
+def get_validation_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compose:
 
     return albumentations.Compose(
         transforms=[
-            IsotropicResize(
+            resize.IsotropicResize(
                 interpolation_down=cv2.INTER_AREA,
                 interpolation_up=cv2.INTER_LINEAR,
                 target_size=(HEIGHT, WIDTH)
@@ -80,7 +84,7 @@ def get_validation_augmentations(HEIGHT: int, WIDTH: int):
             albumentations.PadIfNeeded(
                 min_height=HEIGHT,
                 min_width=WIDTH,
-                border_mode=cv2.BORDER_CONSTANT
+                border_mode=cv2.BORDER_REFLECT
             )
         ]
     )

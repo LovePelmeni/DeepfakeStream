@@ -1,5 +1,5 @@
+from itertools import pairwise
 import cv2
-from PIL.Image import Image
 import numpy
 import albumentations
 import typing
@@ -18,10 +18,14 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
     """
 
     def __init__(self,
-                 interpolation_down: cv2.INTER_AREA,
-                 interpolation_up: cv2.INTER_CUBIC,
-                 target_size: typing.Tuple[int]
+                 target_size: typing.Tuple[int],
+                 interpolation_down=cv2.INTER_AREA,
+                 interpolation_up=cv2.INTER_CUBIC,
+                 always_apply=False,
+                 p=0.5
                  ):
+        super(IsotropicResize, self).__init__(always_apply, p)
+        
         self.interpolation_down = interpolation_down
         self.interpolation_up = interpolation_up
         self.target_size = target_size
@@ -29,7 +33,7 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
         if len(self.target_size) != 2:
             raise RuntimeError(
             "Invalid target image size. Should be tuple of height and width")
-
+    
     def _get_interpolation_policy(self, image, target_size: int):
         """
         Function returns interpolation policy,
@@ -49,7 +53,9 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
                 interpolation=policy
             )
         """
-        height, width = image.shape[0], len(image[0])
+        height = image.shape[0]
+        width = image.shape[1]
+        
         if target_size == height and target_size == width:
             return None
         if target_size > height or target_size > width:
@@ -71,7 +77,9 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
             raise TypeError(
                 "image should be a numpy.ndarray, but not %s" % type(image))
 
-        height, width = image.shape[0], image[0].shape[0]
+        height = image.shape[0]
+        width = image.shape[1]
+
         ratio = width / height
 
         if ratio > 1:
@@ -82,23 +90,22 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
             new_width = int(new_height * ratio)
         return new_height, new_width
 
-    def apply(self, image: numpy.ndarray):
+    def apply(self, image: numpy.ndarray, **kwargs):
         try:
             if not isinstance(image, numpy.ndarray):
-                img = numpy.asarray(image)
+                image = numpy.asarray(image)
 
-            ratio_h, ratio_w = self._get_aspect_ratio(img, self.target_size)
-            int_policy = self._get_interpolation_policy(img, self.target_size)
+            ratio_h, ratio_w = self.get_ratio_size(image, self.target_size)
+            int_policy = self._get_interpolation_policy(image, self.target_size)
             
             return cv2.resize(
-                img, 
+                image, 
                 (ratio_h, ratio_w), 
                 interpolation=int_policy
             )
 
         except (TypeError):
             raise RuntimeError('Invalid image format, convertion failed')
-
 
 
 
