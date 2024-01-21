@@ -23,8 +23,7 @@ def apply_cutout_augmentation(img: numpy.ndarray):
 
 def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compose:
     """
-    Function returns domain-specific augmentations
-    settings for training set
+    Returns augmentations for training data
 
     NOTE:
         expected image need to have .JPEG format.
@@ -76,9 +75,21 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compos
 
 
 def get_validation_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compose:
-
+    """
+    Returns augmentations for training data
+    
+    NOTE:
+        expected image need to have .JPEG format.
+        Make sure to apply conversion, before
+    """
     return albumentations.Compose(
         transforms=[
+            transforms.ImageCompression(
+                quality_lower=90,
+                quality_upper=100,
+                compression_type=0,
+                p=0.3
+            ),
             resize.IsotropicResize(
                 interpolation_down=cv2.INTER_AREA,
                 interpolation_up=cv2.INTER_LINEAR,
