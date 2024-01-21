@@ -1,5 +1,5 @@
 {
-    "network": "efficientnet-b5",
+    "network": "efficientnet-b1",
     "data": {
         "height": 400,
         "width": 400,
@@ -22,7 +22,12 @@
         "patience": 5,
         "start": 3
     },
-    "loss": "cbce",
+    "loss": {
+        "name": "focal_loss",
+        "gamma": 2, 
+        "weights": [1, 2],
+        "weight_type": "fp16"
+    },
     "eval_metric": "f1-score",
     "batch_size": 128,
     "max_epochs": 100
