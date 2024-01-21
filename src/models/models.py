@@ -87,25 +87,12 @@ class NetworkPipeline(object):
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
 
-    def clean_up_checkpoints(self):
-        """
-        Function for cleaning up checkpoints directory
-        """
-        pathlib.Path("./checkpoints").rmdir()
-        pathlib.Path("./checkpoints").mkdir(exist_ok=True)
-
     def save_checkpoint(self, 
         major_version: int,
         minor_version: int, 
         loss: float, 
         epoch: int
     ):
-
-        # initializing checkpoints path, in case it is not initialized
-        pathlib.Path("./checkpoints").mkdir(parents=True, exist_ok=True)
-
-        # saving checkpoint
-
         torch.save(
             {
                 'network': self.network.cpu().state_dict(),
