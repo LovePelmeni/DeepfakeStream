@@ -27,7 +27,7 @@ That's why it is crucial to pick transformations thoroughly. Down below, I've li
 #### Cutout Augmentation
 
 <p align="center">
-  <a><img src="./imgs/augmentations/cutout_example.jpeg" style="width: 50%; height: 50%"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/augmentations/cutout_example.jpeg" style="width: 50%; height: 50%"></a>
 </p>
 
 Regularization-like augmentation, expressed as a set of black squares / rectangles,
@@ -39,7 +39,7 @@ as their structure.
 
 
 <p align="center">
-  <a><img src="./imgs/augmentations/fancy_pca.png" style="width: 50%; height: 50%"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/augmentations/fancy_pca.png" style="width: 50%; height: 50%"></a>
 </p>
 
 
@@ -50,7 +50,7 @@ which can immitate different day times)
 #### Contrast-based techniques
 
 <p align="center">
-  <a><img src="./imgs/augmentations/randombrightnesscont.png" style="width: 50%; height: 50%"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/augmentations/randombrightnesscont.png" style="width: 50%; height: 50%"></a>
 </p>
 
 - RandomBrightnessContrast (randomly tweaks the brightness of the image, within the range of the specified deviation)
@@ -74,5 +74,6 @@ For futher validation, we can provide additional common labels, explaining
 different properties of the picture (for human it can be skin color, gender, presence of beard, etc..).
 While this idea may introduce additional costs of labeling, it ensures, that model
 does not descriminate people against certain essential properties I've aforementioned.
+
 
 

@@ -20,7 +20,7 @@ Original Paper for more details: https://arxiv.org/abs/1610.02391
 Real example of image interpretation:
 
 <p align="center">
-  <a><img src="./imgs/grad_cam/grad_cam_analysis.png" style="width: 50%; height: 50%" alt="Infrastructure"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/grad_cam/grad_cam_analysis.png" style="width: 50%; height: 50%"></a>
 </p>
 
 Here, the area of importance is indicated by the color of the gradient.
