@@ -1,27 +1,29 @@
-import json 
+import json
 import typing
 from torch import nn
 from torch import optim
 from torch.optim import lr_scheduler
 from torch.optim.adamw import AdamW
-from torch.optim.adamax import Adamax
-from torch.optim.rmsprop import RMSprop 
+from torch.optim.rmsprop import RMSprop
 import pandas
 import torch
 import os
 import efficientnet_pytorch as effnet
-import logging 
+import logging
 import numpy
 import cv2
+from src.losses import losses
 
 Logger = logging.getLogger("utils_logger")
 
+
 def resolve_torch_precision(precision: typing.Literal['fp16', 'bfp16', 'fp32', 'int8']):
     """
-    Returns precision of the model and data
+    Returns torch-like precision object
+    from the input string
     Parameters:
     -----------
-    precision - (str) - precision of the data and model
+    precision - (str) - precision, represented as a string
     """
     model_dtype = torch.float32
 
@@ -36,15 +38,17 @@ def resolve_torch_precision(precision: typing.Literal['fp16', 'bfp16', 'fp32', '
 
     return model_dtype
 
+
 def resolve_numpy_precision(precision: typing.Literal['fp16', 'fp32', 'int8']):
     """
-    Returns precision of the model and data
+    Returns numpy-like precision object from 
+    input string 
     Parameters:
     -----------
-    precision - (str) - precision of the data and model
+    precision - (str) - precision, represented as a string
     """
     if precision == 'int8':
-        return numpy.int8 
+        return numpy.int8
 
     elif precision == 'fp16':
         return numpy.float16
@@ -58,6 +62,16 @@ def load_config(config_path: str) -> typing.Dict:
         json_file = json.load(json_config)
     json_config.close()
     return json_file
+
+
+def get_loss_by_name(loss_function_name: str, **kwargs):
+
+    if loss_function_name.lower() == 'focal_loss':
+        return losses.FocalLoss(gamma=kwargs.get("gamma"))
+
+    if loss_function_name.lower() == 'bce_loss' or loss_function_name.lower() == 'cce_loss':
+        return nn.CrossEntropyLoss()
+
 
 def get_optimizer(config_dict: typing.Dict, model: nn.Module) -> nn.Module:
 
@@ -73,7 +87,7 @@ def get_optimizer(config_dict: typing.Dict, model: nn.Module) -> nn.Module:
             lr=learning_rate,
             weight_decay=weight_decay
         )
-        
+
     if name.lower() == 'sgd':
         momentum = config_dict.get("momentum")
         nesterov = config_dict.get("nesterov", False)
@@ -102,7 +116,8 @@ def get_optimizer(config_dict: typing.Dict, model: nn.Module) -> nn.Module:
             momentum=momentum
         )
 
-def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
+
+def get_lr_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
 
     name = config_dict.get("name")
 
@@ -132,6 +147,7 @@ def get_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Module:
             gamma=gamma
         )
 
+
 def get_efficientnet_network(network_name: str):
     """
     Loads network, based on the provided name
@@ -143,14 +159,16 @@ def get_efficientnet_network(network_name: str):
         - "efficientnet-b7"
     """
     try:
-        network: nn.Module = effnet.EfficientNet.from_pretrained(network_name.lower())
+        network: nn.Module = effnet.EfficientNet.from_pretrained(
+            network_name.lower())
         final_features = network._fc.in_features
         final_layer = nn.Linear(in_features=final_features, out_features=2)
-        final_features._fc = final_layer
+        network._fc = final_layer
         return network
-    except(Exception) as err:
+    except (Exception) as err:
         Logger.error(err)
         raise RuntimeError("Failed to load network")
+
 
 def load_images(source_path: str):
     """
@@ -162,14 +180,17 @@ def load_images(source_path: str):
         for file_path in os.listdir(source_path)
     ]
 
+
 def load_labels_to_csv(source_path: str):
     """
     Loads labels for the dataset
     from specified source path arg.
     """
-    return pandas.read_csv(source_path) 
+    return pandas.read_csv(source_path)
+
 
 def convert_to_jpeg(input_img: numpy.ndarray):
-    success, enc_data = cv2.imencode('jpeg', input_img, cv2.IMREAD_UNCHANGED)
-    if not success: raise ValueError("failed to convert image to jpeg format")
-    return cv2.imdecode(enc_data)
+    success, enc_data = cv2.imencode('jpeg', input_img)
+    if not success:
+        raise ValueError("failed to convert image to jpeg format")
+    return cv2.imdecode(enc_data, cv2.IMREAD_UNCHANGED)
