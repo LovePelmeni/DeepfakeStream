@@ -48,7 +48,7 @@ class LabelSmoothing(nn.Module):
         for pred in range(len(pred_probs)):
             max_index = torch.argmax(pred_probs[pred], axis=0)
             one_hot_labels[pred][max_index] = (pred_probs[pred][max_index] - self.eps)
-        return -torch.sum(one_hot_labels * torch.log2() + (1 - one_hot_labels) * torch.log2(1 - pred_probs))
+        return -torch.sum(one_hot_labels * torch.log2(pred_probs) + (1 - one_hot_labels) * torch.log2(1 - pred_probs))
         
 
 

@@ -5,14 +5,14 @@ import logging
 from torch.utils import data
 import numpy.random
 import random
-from regularization import EarlyStopping
+from src.models.regularization import EarlyStopping
 import pathlib
 from tqdm import tqdm
 import gc
 from src.evaluators import sliced_evaluator
 
 trainer_logger = logging.getLogger("trainer_logger.log")
-trainer_logger.setLevel("warning")
+trainer_logger.setLevel(logging.WARN)
 
 class NetworkPipeline(object):
     """
@@ -52,6 +52,7 @@ class NetworkPipeline(object):
                  batch_size: int,
                  optimizer: nn.Module,
                  checkpoint_dir: str,
+                 output_weights_dir: str,
                  lr_scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
@@ -76,6 +77,9 @@ class NetworkPipeline(object):
         self.loader_num_workers = loader_num_workers
         self.seed_generator = torch.Generator()
         self.seed_generator.manual_seed(0)
+
+        self.checkpoint_dir = checkpoint_dir 
+        self.output_weights_dir = output_weights_dir
 
     @staticmethod
     def seed_loader_worker(worker_id: int):
@@ -143,18 +147,23 @@ class NetworkPipeline(object):
         )
 
         best_loss = float('inf')
+        best_eval_metric = 0
         loss_history = []
 
         for epoch in range(self.max_epochs):
 
             epoch_loss = 0
 
-            for imgs, classes in tqdm(iterable=loader, desc='EPOCH %s' % str(epoch)):
+            for imgs, classes in tqdm(
+                iterable=loader, 
+                desc='EPOCH %s, LOSS: %s, EVAL METRIC: %s ' % (
+                    str(epoch), str(best_loss), str(best_eval_metric))):
 
                 predictions = self.network.to(self.train_device).forward(
                     imgs.clone().detach().to(self.train_device))
 
-                loss = self.loss_function(predictions.cpu(), classes)
+                softmax_probs = torch.softmax(predictions, dim=1)
+                loss = self.loss_function(softmax_probs, classes)
                 epoch_loss += loss.item()
 
                 del predictions
@@ -167,21 +176,20 @@ class NetworkPipeline(object):
 
             loss_history.append(epoch_loss)
 
+            best_loss = min(best_loss, round(epoch_loss, 3))
+
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
             if self.early_start <= (epoch + 1):
                 metric = self.evaluate(self.early_dataset)
-                print('evaluation metric: %s' % (str(metric)))
+                best_eval_metric = max(metric, round(best_eval_metric, 3))
                 step = self.early_stopper.step(metric)
                 if step:
                     break
 
             if (epoch + 1) % 3 == 0:
                 self.save_checkpoint(epoch_loss, epoch)
-
-            best_loss = min(best_loss, epoch_loss)
-            print('epoch: %s; best_loss: %s' % (str(epoch + 1), best_loss))
 
         return best_loss, loss_history
 
