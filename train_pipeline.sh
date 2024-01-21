@@ -9,6 +9,14 @@
 # Make sure you've set up all variables, specified in the bellow command.
 # 2. run this shell script using 'sh train_pipeline.sh'.
 
+# NOTE:
+#   you need to use one of the flags:
+#       - --use-cuda
+#       - --use-mps
+#       - --use-cpu
+# Do not try to use them at the same time as multiple backends usage is not supported.
+
+
 python3 -u -m src.pipelines.train_pipeline \
  --train-data-path $TRAIN_DATA_PATH \
  --train-labels-path $TRAIN_LABELS_PATH \
@@ -19,8 +27,6 @@ python3 -u -m src.pipelines.train_pipeline \
  --checkpoint-path $CHECKPOINT_PATH \
  --log-path $LOG_PATH \
  --use-cpu $ENABLE_CPU \
- # --use-cuda $ENABLE_CUDA \
- # --use-mps $ENABLE_MPS \
  --num-workers $NUM_CPU_WORKERS \
  --gpu-id $GPU_ID \
  --use-cudnn-bench $ENABLE_CUDNN_BENCH \

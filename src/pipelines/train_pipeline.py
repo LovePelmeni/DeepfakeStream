@@ -13,7 +13,6 @@ from torch.utils.tensorboard.writer import SummaryWriter
 import src.pipelines.train_utils as utils
 
 from src.models import models
-from src.losses import losses
 
 
 info_logger = logging.getLogger("train_pipeline_info_logger")
