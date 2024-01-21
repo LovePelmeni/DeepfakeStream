@@ -33,35 +33,27 @@ class DeepfakeDataset(data.Dataset):
     """
 
     def __init__(self,
-                 image_paths: typing.List[str],
-                 image_labels: typing.List[typing.Union[str, int]],
-                 label_smoothing_eps: float = 0,
-                 augmentations=None
-                 ):
+        image_paths: typing.List[str],
+        image_labels: typing.List[typing.Union[str, int]],
+        label_smoothing_eps: float = 0
+    ):
         self.image_paths = image_paths
         self.image_labels = image_labels
         self.label_smoothing_eps = label_smoothing_eps
-        self.augmentations = augmentations
 
     def __len__(self):
-        return len(self.images)
+        return len(self.image_paths)
 
     def get_numpy_image(self, idx: int) -> numpy.ndarray:
 
         image = cv2.imread(self.image_paths[idx], cv2.IMREAD_UNCHANGED)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        if self.transformations is not None:
-            image = self.augmentations(image=image)['image']
         return image
 
     def get_tensor_image(self, idx: int) -> torch.FloatTensor:
 
         image = cv2.imread(self.image_paths[idx], cv2.IMREAD_UNCHANGED)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        if self.transformations is not None:
-            image = self.augmentations(image=image)['image']
 
         image = self.get_numpy_image(idx)
         image = torch.from_numpy(image).float().permute(2, 0, 1)
@@ -78,4 +70,4 @@ class DeepfakeDataset(data.Dataset):
         except (Exception) as err:
             logger.error(err)
             raise RuntimeError(
-                msg='failed to parse data, internal error occurred')
+                'failed to parse data, internal error occurred')
