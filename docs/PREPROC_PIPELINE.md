@@ -11,7 +11,7 @@ that would allow us to iterate quickly
 
 # Technical Guide 
 
-The source code for the CLI is available ["here"](https://github.com/LovePelmeni/DeepfakeStream/blob/main/src/pipelines/train_pipeline.py).
+The source code for the CLI is available ["here"](https://github.com/LovePelmeni/DeepfakeStream/blob/main/src/pipelines/preproc_pipeline.py).
 
 
 ### Key CLI Arguments:
