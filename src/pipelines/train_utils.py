@@ -13,6 +13,9 @@ import logging
 import numpy
 import cv2
 from src.losses import losses
+from src.metrics import metrics
+from src.datasets import datasets
+import albumentations
 
 Logger = logging.getLogger("utils_logger")
 
@@ -64,13 +67,26 @@ def load_config(config_path: str) -> typing.Dict:
     return json_file
 
 
-def get_loss_by_name(loss_function_name: str, **kwargs):
+def get_loss_from_config(loss_config: typing.Dict) -> nn.Module:
 
-    if loss_function_name.lower() == 'focal_loss':
-        return losses.FocalLoss(gamma=kwargs.get("gamma"))
+    loss_name = loss_config.get("name")
+    weights = loss_config.get("weights", torch.as_tensor([1, 1]))
+    weight_type = resolve_torch_precision(loss_config.get("weight_type", "fp16"))
+    label_smoothing_eps = loss_config.get("label_smoothing", 0.0)
+     
+    if loss_name.lower() == 'focal_loss':
 
-    if loss_function_name.lower() == 'bce_loss' or loss_function_name.lower() == 'cce_loss':
-        return nn.CrossEntropyLoss()
+        return losses.FocalLoss(
+            weights=weights,
+            weight_type=weight_type,
+            gamma=loss_config.get("gamma", 2)
+        )
+
+    if loss_name.lower() == 'bce_loss' or loss_name.lower() == 'cce_loss':
+        return nn.CrossEntropyLoss(
+            weight=weights.to(weight_type), 
+            label_smoothing=label_smoothing_eps
+        )
 
 
 def get_optimizer(config_dict: typing.Dict, model: nn.Module) -> nn.Module:
@@ -148,7 +164,7 @@ def get_lr_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Modul
         )
 
 
-def get_efficientnet_network(network_name: str):
+def get_efficientnet_network(network_name: str) -> effnet.EfficientNet:
     """
     Loads network, based on the provided name
     Parameters:
@@ -169,17 +185,54 @@ def get_efficientnet_network(network_name: str):
         Logger.error(err)
         raise RuntimeError("Failed to load network")
 
-
-def load_images(source_path: str):
+def get_evaluation_metric_by_name(eval_metric_name: str) -> nn.Module:
     """
-    Loads local .mp4 video or image
-    files, presented in the source path
+    Returns evaluation metric by it's name
+    """
+    if eval_metric_name.lower() == "f1_score":
+        return metrics.F1Score()
+
+    if eval_metric_name.lower() == "precision":
+        return metrics.Precision()
+
+    if eval_metric_name.lower() == "recall":
+        return metrics.Recall()
+
+def load_image_paths(source_path: str):
+    """
+    Returns list of image paths, presented
+    inside the 'source_path' directory.
+    Supported image extensions: "jpeg", "png", "jpg", "avif"
     """
     return [
         os.path.join(source_path, file_path)
         for file_path in os.listdir(source_path)
+        if file_path.endswith("jpeg") or file_path.endswith("png")
+        or file_path.endswith("jpg") or file_path.endswith("avif")
     ]
 
+def load_deepfake_dataset(
+    image_paths: typing.Union[typing.List, numpy.ndarray, torch.Tensor], 
+    labels: typing.Union[typing.List, numpy.ndarray, torch.Tensor], 
+    **kwargs
+):
+    """
+    Returns DeepfakeDataset abstraction class
+    Parameters:
+    -----------
+    train_image_paths: (list) - list of image path urls
+    train_labels: (list) - list of images labels
+    augmentations: (albumentations.Compose) - data image augmentations
+
+    Returns:
+        - DeepfakeDataset abstraction class
+    """
+
+    return datasets.DeepfakeDataset(
+        image_paths=image_paths,
+        image_labels=labels,
+        **kwargs
+    )
 
 def load_labels_to_csv(source_path: str):
     """
