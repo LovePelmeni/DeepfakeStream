@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional
 
-class WeigthedLoss(nn.Module):
+class WeightedLoss(nn.Module):
     """
     Implementation of weighted
     loss function, which considers 
@@ -10,33 +10,67 @@ class WeigthedLoss(nn.Module):
     """
     def __init__(self, 
         loss_function: nn.Module,
-        weights: torch.Tensor, 
-        weight_type: str
+        weights: list, 
+        weight_type: torch.dtype
     ):
-        self.weights = weights.to(weight_type)
+        super(WeightedLoss, self).__init__()
+        self.weights = torch.as_tensor(weights).to(weight_type)
         self.loss_function = loss_function
 
-    def forward(self, pred_labels: torch.Tensor, true_labels: torch.Tensor):
+    def forward(self, pred_probs: torch.Tensor, true_labels: torch.Tensor):
+        """
+        Performs forward pass of the weighted loss function.
+
+        NOTE:
+            - pred_probs expected to be a torch.Tensor object 
+            of predicted class probabilities (0, 1, background)
+            Example:
+                - [[0.4, 0.5, 0.7], [0.5, 0.25, 0.25]]
+        """
         total_loss = 0
-        for idx, pred_label in enumerate(pred_labels):
+
+        output_labels = torch.argmax(pred_probs, dim=1, keepdim=False)
+        output_probs = torch.max(pred_probs, dim=1, keepdim=False)
+        
+        for idx, pred_label in enumerate(output_labels):
+
             weight = self.weights[pred_label]
-            loss = self.loss_function(pred_label, true_labels[idx])
+
+            loss = self.loss_function(
+                torch.as_tensor([output_probs[idx]]), 
+                torch.as_tensor([true_labels[idx].float()]),
+            )
+            
             total_loss += (loss * weight)
         return total_loss
+
 class FocalLoss(nn.Module):
-    """
-    Implementation of Focal Loss
-    function, which is highly beneficial
-    to use in imbalanced classification systems
 
-    """
-    def __init__(self, gamma: float):
-        self.gamma = gamma 
-    
-    def forward(self, predicted_prob: torch.Tensor, actual_label: torch.Tensor):
-        pred_probs = torch.argmax(predicted_prob, axis=1).flatten()
-        actual_labels = torch.argmax(actual_label, axis=1).flatten()
-        bce_loss = functional.binary_cross_entropy_with_logits(pred_probs, actual_labels)
-        return -((1 - predicted_prob) ** self.gamma) * bce_loss
+    def __init__(self, weights: list, weight_type: torch.dtype, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        weight_values = torch.as_tensor(weights).to(weight_type)
+        weight_classes = range(len(weights))
+        self.weights = {c:w for c, w in zip(weight_classes, weight_values)}
 
+    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor):
+        # Flatten the predictions and ground truth masks
+        
+        pred_labels = torch.argmax(y_pred.float(), dim=1, keepdim=False).to(torch.float32)
+        label_weights = torch.as_tensor([self.weights[label.item()] for label in pred_labels])
+        pred_probs = torch.amax(y_pred.float(), 1, False).to(torch.float32)
 
+        # Calculate binary cross-entropy loss
+        bce_loss = functional.binary_cross_entropy_with_logits(
+            input=pred_probs, target=y_true.float(), 
+            pos_weight=label_weights,
+            reduction='none'
+        )
+
+        # Calculate focal loss
+        focal_loss = (1 - torch.exp(-bce_loss)) ** self.gamma * bce_loss
+
+        # Calculate mean over all elements
+        mean_loss = torch.mean(focal_loss)
+
+        return mean_loss
