@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/sh
 
 # Script for automatic training run
 # All you have to do is specify configuration in 'pipeline.env' 
@@ -16,6 +16,15 @@
 #       - --use-cpu
 # Do not try to use them at the same time as multiple backends usage is not supported.
 
+FILE=./env_vars/train_pipeline.env
+
+if [ -f "$FILE" ];
+then source $FILE;
+else
+    echo "$FILE does not exist.\
+    Training pipeline loads configuration from this file.\
+    Create this file and provide settings, according to 'docs/data_management/TRAIN_PIPELINE.md'"
+fi
 
 python3 -u -m src.pipelines.train_pipeline \
  --train-data-path $TRAIN_DATA_PATH \
