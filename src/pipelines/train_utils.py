@@ -197,6 +197,10 @@ def get_evaluation_metric_by_name(eval_metric_name: str) -> nn.Module:
 
     if eval_metric_name.lower() == "recall":
         return metrics.Recall()
+    else:
+        raise SystemExit("""RuntimeError:
+        invalid evaluation metric name provided. 
+        Options: 'f1_score', 'recall', 'precision'. But got '%s'""" % eval_metric_name)
 
 def load_image_paths(source_path: str):
     """

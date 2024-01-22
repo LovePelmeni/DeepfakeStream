@@ -12,16 +12,24 @@ import sys
 from torch.utils.tensorboard.writer import SummaryWriter
 import src.pipelines.train_utils as utils
 
-from src.models import models
+from src.trainers import models
 
 
 info_logger = logging.getLogger("train_pipeline_info_logger")
 err_logger = logging.getLogger("train_pipeline_error_logger")
 runtime_logger = logging.getLogger("train_pipeline_runtime_logger")
 
-error_handler = logging.FileHandler(filename="pipeline_issue_logs.log")
-info_handler = logging.FileHandler(filename="pipeline_debug_logs.log")
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+error_handler = logging.FileHandler(filename="train_pipeline_issue_logs.log")
+info_handler = logging.FileHandler(filename="train_pipeline_info_logs.log")
 runtime_handler = logging.StreamHandler(stream=sys.stdout)
+
+# setting up logging formatters
+
+error_handler.setFormatter(formatter)
+info_handler.setFormatter(formatter)
+runtime_handler.setFormatter(formatter)
 
 # setting up handler boundary level
 
@@ -136,8 +144,8 @@ def training_pipeline():
 
     if (args.cudnn_bench == True):
         err_logger.warning(
-            "cunn.benchmark mode has been turned on. \
-            Make sure the data has the same size.")
+            """cunn.benchmark mode has been turned on.
+            Make sure the data has the same size.""")
 
     # loading experiment configuration
 
@@ -152,6 +160,7 @@ def training_pipeline():
         # loading validation data
         val_image_paths = numpy.asarray(utils.load_image_paths(valid_dataset_dir))
         val_labels = utils.load_labels_to_csv(val_labels_dir)['class']
+        
 
     except(FileNotFoundError) as err:
         raise err
@@ -184,7 +193,7 @@ def training_pipeline():
 
         early_indices = numpy.random.choice(
             a=numpy.arange(len(validation_dataset)), 
-            size=int(len(validation_dataset) * 0.15)
+            size=max(int(len(validation_dataset) * 0.15), 1)
         )
 
         early_image_paths = val_image_paths[early_indices]
@@ -209,9 +218,9 @@ def training_pipeline():
 
     if numpy.count_nonzero([int(args.use_cuda), int(args.use_mps)]) > 1:
 
-        raise RuntimeError("You cannot use multiple backends for training at the same time. \
-        Turn on option to true and others to False. \
-        Example: ENABLE_CPU=False; ENABLE_CUDA=True; ENABLE_MPS=False")
+        raise RuntimeError("""You cannot use multiple backends for training at the same time.
+        Turn on option to true and others to False.
+        Example: ENABLE_CPU=False; ENABLE_CUDA=True; ENABLE_MPS=False""")
 
     if args.use_cuda:
 
@@ -225,8 +234,8 @@ def training_pipeline():
             if isinstance(args.gpu_id, str) and args.gpu_id[0].isdigit():
                 device_name = "cuda:%s" % (args.gpu_id[0])
         else:
-            err_logger.warning("you didnt provide any GPU ids. \
-            Cuda is going to leverage all available GPUs during training.")
+            err_logger.warning("""you didnt provide any GPU ids.
+            Cuda is going to leverage all available GPUs during training.""")
 
     elif args.use_mps:
         device_name = "mps"
@@ -238,12 +247,12 @@ def training_pipeline():
     num_cpu_workers = int(args.num_workers)
 
     if num_cpu_workers < 3:
-        err_logger.warning("You've set number of cpu threads to be less, \
-        than the baseline (recommended is 3).")
+        err_logger.warning("""You've set number of cpu threads to be less,
+        than the baseline (recommended is 3).""")
 
     elif num_cpu_workers > 5:
-        err_logger.warning("You've set number of cpu threads to be greater, \
-         than it is recommended. (5 threads is usually considered as enough'")
+        err_logger.warning("""You've set number of cpu threads to be greater,
+         than it is recommended. (5 threads is usually considered as enough'""")
 
     # training-specific settings
 
@@ -259,13 +268,13 @@ def training_pipeline():
     loss_function = utils.get_loss_from_config(loss_config=exp_config['loss'])
 
     evaluation_metric = utils.get_evaluation_metric_by_name(exp_config['eval_metric'])
-
+    
     batch_size = int(exp_config['batch_size'])
     max_epochs = int(exp_config['max_epochs'])
 
     # setting up classifier training pipeline
 
-    trainer = models.NetworkPipeline(
+    trainer = models.NetworkTrainer(
         network=network,
         loss_function=loss_function,
         eval_metric=evaluation_metric,
@@ -290,7 +299,12 @@ def training_pipeline():
     # plot of the loss function change during training
 
     loss_figure = plt.figure(figsize=(30, 30))
-    _, ax = plt.plot(loss_history)
+    _, ax = plt.subplots()
+    ax.plot(numpy.arange(len(loss_history)), loss_history)
+
+    ax.set(xlabel='Epoch', ylabel='Loss',
+        title='Loss change during training')
+    ax.grid()
 
     ax.axes.set_xticklabels(
         labels=[
@@ -324,12 +338,14 @@ def training_pipeline():
     )
 
     test_img, _ = validation_dataset[0]
-
-    torch.onnx.export(
-        model=trainer.network.cpu(), 
-        args=test_img.cpu(),
-        f=model_path
-    )
+    try:
+        torch.onnx.export(
+            model=trainer.network.cpu(), 
+            args=test_img.unsqueeze(0).cpu(),
+            f=model_path
+        )
+    except(UserWarning) as err:
+        err_logger.warn(err)
 
     print('training completed.')
 

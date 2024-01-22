@@ -22,8 +22,13 @@ err_logger = logging.getLogger(name="preproc_pipeline_err_logger")
 runtime_logger.setLevel(level=logging.DEBUG)
 err_logger.setLevel(level=logging.ERROR)
 
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 runtime_handler = logging.StreamHandler(stream=sys.stdout)
 err_handler = logging.FileHandler(filename="preproc_pipeline_error_logs.log")
+
+err_handler.setFormatter(formatter)
+runtime_handler.setFormatter(formatter)
 
 runtime_logger.addHandler(runtime_handler)
 err_logger.addHandler(err_handler)
