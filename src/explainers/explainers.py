@@ -18,10 +18,15 @@ def interpret_network_predictions(
     network: nn.Module,
     network_interpretation_layers: typing.List[nn.Module],
     inference_device: torch.device,
-    dataset: datasets.ImageDataset,
+    dataset: datasets.DeepfakeDataset,
     img_indices: typing.List
 ):
-
+    """
+    Leverages technique of Grad-CAM to 
+    give a visual interpretation on how 
+    model distinguishes between good and bad 
+    features on the image
+    """
     cam = GradCAM(
         model=network,
         target_layers=[network_interpretation_layers]
@@ -53,3 +58,4 @@ def interpret_network_predictions(
 
         ax[sample_idx, 0].imshow(visual_img)
         ax[sample_idx, 1].imshow(visualization)
+    plt.imshow()
