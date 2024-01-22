@@ -5,16 +5,21 @@ import logging
 from torch.utils import data
 import numpy.random
 import random
-from src.models.regularization import EarlyStopping
-import pathlib
+from src.trainers.regularization import EarlyStopping
 from tqdm import tqdm
 import gc
 from src.evaluators import sliced_evaluator
+import os
 
 trainer_logger = logging.getLogger("trainer_logger.log")
-trainer_logger.setLevel(logging.WARN)
+handler = logging.FileHandler("network_trainer_logs.log")
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-class NetworkPipeline(object):
+handler.setFormatter(formatter)
+trainer_logger.setLevel(logging.WARN)
+trainer_logger.addHandler(handler)
+
+class NetworkTrainer(object):
     """
     Pipeline class, which encompasses
     model training / validation and inference
@@ -86,18 +91,24 @@ class NetworkPipeline(object):
         worker_seed = torch.initial_seed() % 2 ** 32
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
+    
+    def load_from_checkpoint(self, checkpoint_path: str):
+        pass
 
     def save_checkpoint(self, 
-        major_version: int,
-        minor_version: int, 
         loss: float, 
         epoch: int
     ):
+        checkpoint_path = os.path.join(
+            self.checkpoint_dir, 
+            "checkpoint_epoch_%s.pth" % str(epoch)
+        )
+
         torch.save(
             {
                 'network': self.network.cpu().state_dict(),
                 'optimizer': self.optimizer.state_dict(),
-                'lr_scheduler': self.lr_scheduler.state_dict(),
+                'lr_scheduler': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
                 'batch_size': self.batch_size,
                 'loss': loss,
                 'epoch': epoch,
@@ -113,12 +124,7 @@ class NetworkPipeline(object):
                     for device in range(torch.cuda.device_count())
                 ]
 
-            }, f='%s/checkpoint_%s.%s.%s.pt' % (
-                self.checkpoint_dir,
-                str(major_version),
-                str(minor_version),
-                str(epoch)
-            )
+            }, f=checkpoint_path
         )
 
     def train(self, train_dataset: data.Dataset):
@@ -195,32 +201,36 @@ class NetworkPipeline(object):
                 return eval_metrics
             else:
                 output_labels = torch.tensor([]).to(torch.uint8)
-
-                loader = data.DataLoader(
-                    dataset=validation_dataset,
-                    batch_size=self.batch_size,
-                    shuffle=True,
-                    num_workers=self.loader_num_workers,
-                    worker_init_fn=self.seed_loader_worker,
-                    generator=self.seed_generator,
-                )
+                try:
+                    loader = data.DataLoader(
+                        dataset=validation_dataset,
+                        batch_size=1,
+                        shuffle=True,
+                        num_workers=self.loader_num_workers,
+                        worker_init_fn=self.seed_loader_worker,
+                        generator=self.seed_generator,
+                    )
+                except(ValueError) as val_err:
+                    trainer_logger.error(val_err)
+                    raise SystemExit(
+                        """RuntimeError: Validation dataset is empty,
+                        therefore data loader could not load anything.
+                        It can be due to invalid path to validation image dataset.
+                        Make sure the path you provided under 'VAL_DATA_DIR' parameter 
+                        is actually valid path and exists.""")
 
                 for imgs, classes in tqdm(loader):
 
                     predictions = self.network.forward(
                         imgs.clone().detach().to(self.train_device)).cpu()
-
-                    classes = torch.as_tensor(classes)
-                    predicted_labels = torch.as_tensor([
-                        torch.argmax(predictions[idx], axis=0)
-                        for idx in range(len(predictions))
-                    ])
+                    
+                    softmax_probs = torch.softmax(predictions, dim=1)
+                    pred_labels = torch.argmax(softmax_probs, dim=1, keepdim=False)
+                    binary_labels = torch.where(pred_labels == classes, 1, 0)
 
                     del predictions
                     gc.collect()
-
-                    binary_labels = (
-                        classes == predicted_labels).to(torch.int8)
+                    
                     output_labels = torch.cat([output_labels, binary_labels])
 
                 # computing evaluation metric
@@ -236,3 +246,4 @@ class NetworkPipeline(object):
         batch_imgs = torch.stack(input_images).to(self.train_device)
         predictions = self.network.forward(batch_imgs).cpu()
         return predictions
+
