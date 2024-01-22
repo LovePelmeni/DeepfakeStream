@@ -13,7 +13,7 @@ MODE=$1
 
 if [ "$MODE" == "train" ];
 then 
-    FILE=./env_vars/train_data_pipeline.env
+    FILE=./env_vars/train_preproc_pipeline.env
     if [ -f "$FILE" ]; 
     then source $FILE
     else echo "$FILE does not exist.\n
@@ -23,7 +23,7 @@ then
     fi;
 elif [ "$MODE" == "validation" ];
 then 
-    FILE=./env_vars/val_data_pipeline.env
+    FILE=./env_vars/val_preproc_pipeline.env
     if [ -f "$FILE" ]; 
     then source $FILE
     else echo "$FILE does not exist.\n
