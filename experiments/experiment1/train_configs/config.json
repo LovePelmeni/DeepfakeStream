@@ -1,0 +1,34 @@
+{
+    "network": "efficientnet-b1",
+    "data": {
+        "height": 400,
+        "width": 400,
+        "channels": 3,
+        "input_type": "fp16"
+    },
+    "optimizer": {
+        "learning_rate": 3e-4,
+        "name": "Adam",
+        "momentum": 0.9,
+        "weight_decay": 1e-4
+    },
+    "scheduler": {
+        "name": "reduce_lr_on_plateau",
+        "factor": 0.5,
+        "reduce": "min"
+    },
+    "early_stopping": {
+        "min_diff": 7e-1,
+        "patience": 5,
+        "start": 3
+    },
+    "loss": {
+        "name": "focal_loss",
+        "gamma": 2, 
+        "weights": [1, 2],
+        "weight_type": "fp16"
+    },
+    "eval_metric": "f1_score",
+    "batch_size": 128,
+    "max_epochs": 100
+}
