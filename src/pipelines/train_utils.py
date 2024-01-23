@@ -15,7 +15,7 @@ import cv2
 from src.losses import losses
 from src.metrics import metrics
 from src.datasets import datasets
-import albumentations
+from src.schedulers import lr_schedulers
 
 Logger = logging.getLogger("utils_logger")
 
@@ -157,9 +157,25 @@ def get_lr_scheduler(config_dict: typing.Dict, optimizer: nn.Module) -> nn.Modul
         step_size = config_dict.get("step_size")
         gamma = config_dict.get("gamma")
 
-        return lr_scheduler.StepLR(
+        return lr_schedulers.StepLRScheduler(
             optimizer=optimizer,
             step_size=step_size,
+            gamma=gamma
+        )
+    if name.lower() == "polylr":
+
+        gamma = config_dict.get('gamma')
+        max_iters = config_dict.get("max_iters")
+
+        return lr_schedulers.PolyLRScheduler(
+            optimizer=optimizer,
+            max_iters=max_iters,
+            power=gamma
+        )
+    if name.lower() == "explr":
+        gamma = config_dict.get('gamma')
+        return lr_schedulers.ExponentialLRScheduler(
+            optimizer=optimizer,
             gamma=gamma
         )
 
