@@ -89,7 +89,7 @@ def training_pipeline():
 
     # additional hardware related settings
     arg("--num-workers", type=int, default=3, dest='num_workers',
-        help='number of CPU threads to be involved during training')
+        help='number of CPU threads for loading dataset during training')
     arg("--gpu-id", type=str, default='', required=False,
         help='ID of GPU to use for training')
     arg("--use-cudnn-bench", type=bool, dest='cudnn_bench', default=False,
