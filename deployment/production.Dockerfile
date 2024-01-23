@@ -3,6 +3,12 @@ LABEL author=kirklimushin@gmail.com
 
 # setting up NVCC, CUDA environment variables 
 
+ENV CUDA_HOME="usr/local/cuda"
+ENV PATH='${CUDA_HOME}:bin/${PATH}'
+ENV LD_LIBRARY_PATH='${cdCUDA_HOME}/lib64:${LD_LIBRARY_PATH}'
+ENV TORCH_CUDA_ARCH_LIST="6.0;7.0"
+ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
+
 FROM python:3.9-slim-bullseye 
 WORKDIR /workspace 
 
