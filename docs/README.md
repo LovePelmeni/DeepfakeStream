@@ -1,4 +1,4 @@
-# DeepStream face detector
+# DeepfakeStream face detector
 
 Design documentation for the machine learning-powered service responsible for detecting deepfake manipulations in videos, specifically focusing on human faces. As the prevalence of deepfake technology continues to rise, the need for robust and scalable solutions to identify manipulated content has become crucial. Our goal is to develop a state-of-the-art service that leverages advanced machine learning algorithms to detect and mitigate the impact of maliciously created deepfake videos.
 
