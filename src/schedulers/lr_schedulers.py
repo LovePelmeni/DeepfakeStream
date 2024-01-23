@@ -1,5 +1,8 @@
 from torch.optim.lr_scheduler import _LRScheduler 
 from torch import nn
+import typing
+import bisect
+import torch
 
 class StepLRScheduler(_LRScheduler):
     """
@@ -15,7 +18,7 @@ class StepLRScheduler(_LRScheduler):
     def __init__(self, 
         optimizer: nn.Module, 
         step_size: int,
-        gamma: float,
+        gamma: float = 0.9,
         last_epoch: int = -1
     ):
         super().__init__(optimizer=optimizer, last_epoch=last_epoch)
@@ -30,6 +33,36 @@ class StepLRScheduler(_LRScheduler):
             base_lr * self.gamma ** (self.last_epoch // self.step_size)
             for base_lr in self.base_lrs
         ]
+
+class MultiStepLRScheduler(_LRScheduler):
+    """
+    MultiStep LR Scheduler, used 
+    for dynamically updating overall learning 
+    rate at different 'milestones' or epochs.
+
+    Parameters:
+    ----------
+    optimizer (nn.Module) - optimizer, used for training 
+    gamma (float) - 
+    milestones (typing.List[int]) - list of epochs to perform lr reduction
+    last_epoch - current epoch
+    """
+    def __init__(self, 
+        optimizer: nn.Module, 
+        milestones: typing.List[int], 
+        gamma: float = 0.9,
+        last_epoch: int = -1
+    ):
+        self.optimizer = optimizer 
+        self.gamma = gamma 
+        self.milestones: typing.List[int] = torch.unique(milestones).tolist()
+        super(MultiStepLRScheduler, self).__init__(optimizer=optimizer, last_epoch=last_epoch)
+
+    def get_lr(self):
+        if self.last_epoch < 0:
+            return self.base_lrs
+        power = max(bisect.bisect_right(self.milestones, self.last_epoch)-1, 0)
+        return [base_lr * (self.gamma ** (power)) for base_lr in self.base_lrs]
     
 class PolyLRScheduler(_LRScheduler):
 
@@ -65,14 +98,14 @@ class ExponentialLRScheduler(_LRScheduler):
     last_epoch (int) current epoch of the scheduler
     """ 
 
-    def __init__(self, optimizer: nn.Module, gamma: float, last_epoch: int = -1):
+    def __init__(self, optimizer: nn.Module, gamma: float = 0.9, last_epoch: int = -1):
         self.gamma = gamma 
         super(ExponentialLRScheduler, self).__init__(optimizer=optimizer, last_epoch=last_epoch)
     
     def get_lr(self):
+
         if self.last_epoch <= 0:
             return self.base_lrs 
 
-        return [(base_lr * self.gamma ** self.last_epoch) for base_lr in self.base_lrs]
-
+        return [base_lr * torch.exp(-self.gamma * self.last_epoch) for base_lr in self.base_lrs]
 
