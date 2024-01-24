@@ -80,11 +80,11 @@ def training_pipeline():
         dest='log_dir', help='directory for storing logs')
 
     # hardware settings
-    arg("--use-cuda", type=bool, default=False, dest='use_cuda',
-        help='use CUDA backend for model training')
-    arg("--use-cpu", type=bool, default=True, dest='use_cpu',
+    arg("--use-cuda", type=bool, dest='use_cuda',
+        help='use CUDA backend for model training', action='store_true')
+    arg("--use-cpu", type=bool, action='store_false', dest='use_cpu',
         help='use CPU backend for model training')
-    arg("--use-mps", type=bool, default=False, dest="use_mps",
+    arg("--use-mps", type=bool, action='store_true', dest="use_mps",
         help="Use MAC mps backend for training")
 
     # additional hardware related settings
