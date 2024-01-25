@@ -1,6 +1,5 @@
 {
-    "resize_height": 1024,
-    "resize_width": 1024,
+    "image_size": 1024,
     "dataset_type": "train",
     "data_type": "fp16"
 }

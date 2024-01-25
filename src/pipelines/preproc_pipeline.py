@@ -1,7 +1,7 @@
 import argparse
 import src.pipelines.train_utils as utils
 import pathlib
-from src.augmentations import augmentations
+from src.preprocessing import augmentations
 
 import cv2
 import os
@@ -67,8 +67,8 @@ def data_pipeline():
     dataset_type = img_config.get("dataset_type")  # train or valid
     # fp16, int16, int8, etc.
     data_type = utils.resolve_numpy_precision(img_config.get("data_type"))
-    img_height = img_config.get("resize_height")  # height of the image
-    img_width = img_config.get("resize_width")  # width of the image
+    img_height = img_config.get("image_size")  # height of the image
+    img_width = img_config.get("image_size")  # width of the image
 
     runtime_logger.debug('4. initializing augmentations \n')
 

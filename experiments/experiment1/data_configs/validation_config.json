@@ -1,0 +1,5 @@
+{
+    "image_size": 1024,
+    "dataset_type": "validation",
+    "data_type": "fp16"
+}

@@ -12,7 +12,7 @@ import sys
 from torch.utils.tensorboard.writer import SummaryWriter
 import src.pipelines.train_utils as utils
 
-from src.trainers import models
+from src.training.trainers import models
 
 
 info_logger = logging.getLogger("train_pipeline_info_logger")
@@ -75,7 +75,7 @@ def training_pipeline():
     arg("--checkpoint-path", type=str, default='checkpoints/',
         dest='checkpoint_dir', help='path for storing training checkpoints')
     arg('--config-path', type=str, dest='config_dir',
-        help='path to .json data configuration file.')
+        help='path to .json train configuration file, containing information for training pipeline.')
     arg("--log-path", type=str, default='logs/',
         dest='log_dir', help='directory for storing logs')
 
