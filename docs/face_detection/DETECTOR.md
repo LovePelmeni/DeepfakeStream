@@ -1,6 +1,6 @@
 # Face Detection in DeepfakeStream
 
-Document stands for the overview of face detection approach, 
+Overview of face detection approach, 
 used in the DeepfakeStream project.
 
 # Assumptions 
