@@ -1,0 +1,7 @@
+{
+    "min_face_size": 160,
+    "input_image_size": 512,
+    "encoder_name": "efficientnet-b1",
+    "encoder_image_size": 380,
+    "inference_device": "cpu"
+}

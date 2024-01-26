@@ -1,0 +1,5 @@
+{
+    "mtcnn_image_size": 1024,
+    "encoder_image_size": 380,
+    "data_type": "fp16"
+}
