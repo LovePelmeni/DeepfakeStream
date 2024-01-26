@@ -1,29 +1,29 @@
 import logging
 from PIL import Image
-
-import torch
 import fastapi.responses 
 import fastapi.exceptions 
 from fastapi import Request
+from src.inference import predict
 
 import os
 import numpy
 import base64
 
-GPU_DEVICE = "cuda"
-
 logger = logging.getLogger("controller_logger")
 file_handler = logging.FileHandler(filename="controller_logger.log")
+formatter = logging.Formatter(fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+file_handler.setFormatter(formatter)
 logger.addHandler(logger)
 
+# Loading inference model pipeline from configuration file
 
-network = None
 try:
-    network = torch.load("models/inf_deepfake_model.onnx")
-except(FileNotFoundError) as err:
-    # raise SystemExit("Failed to load model file, check logs.")
-    pass
+    config_path = os.environ.get("INFERENCE_CONFIG_PATH")
+    model = predict.InferenceModel.from_config(config_path=config_path)
 
+except(FileNotFoundError) as err:
+    raise SystemExit("Failed to load model inference configuration, check logs.")
 
 async def predict_human_deepfake(request: Request):
     """
@@ -39,10 +39,7 @@ async def predict_human_deepfake(request: Request):
                 fp=base64.b64decode(s=img_bytes_string)
             )
         )
-        tensor_img = torch.from_numpy(img).to(GPU_DEVICE)
-        predicted_labels = network.forward(tensor_img).cpu()
-        output_label = torch.argmax(predicted_labels, dim=0)
-        
+        output_label = model.predict(input_img=img)
         return fastapi.responses.Response(
             status_code=201, content={
                 "label": output_label

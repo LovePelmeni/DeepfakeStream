@@ -1,12 +1,17 @@
-import argparse
 import src.pipelines.train_utils as utils
-import pathlib
 from src.preprocessing import augmentations
+from src.preprocessing.augmentations import resize
+from src.preprocessing.face_detector import VideoFaceDataset, MTCNNFaceDetector
+from src.preprocessing.prep_utils import get_video_paths
 
-import cv2
-import os
+import argparse
+import pathlib
 import logging
 import sys
+from torch.utils import data
+import os
+from tqdm import tqdm
+import cv2
 
 """
 Data preprocessing pipeline
@@ -39,15 +44,28 @@ def data_pipeline():
     runtime_logger.debug('\n \n1. running preprocessing pipeline... \n')
 
     parser = argparse.ArgumentParser(
-        description="CLI-based Data Preprocessing Pipeline")
+    description="CLI-based Data Preprocessing Pipeline")
     arg = parser.add_argument
 
-    arg("--data-dir", type=str, dest='data_dir',
-        required=True, help='path to dataset directory')
-    arg('--config-dir', type=str, dest='config_dir', required=True,
-        help='configuration .json file, containing information about the data')
-    arg("--output-dir", type=str, dest='output_dir',
-        required=True, help='path where to save augmented data')
+    arg("--orig-data-dir", type=str, dest='orig_data_dir',
+    required=True, help='path to original videos')
+
+    arg('--fake-data-dir', 
+    type=str, dest='deepfake_data_dir', 
+    required=True, help='path to deepfaked videos')
+
+    arg('--data-config-dir', type=str, dest='config_dir', required=True,
+    help='configuration .json file, containing information about the data')
+
+    arg("--orig-crop-dir", type=str, dest='orig_crop_dir',
+    required=True, help='path to save orig cropped faces')
+
+    arg("--fake-crop-dir", type=str, dest='fake_crop_dir',
+    required=True, help='path to save fake cropped faces')
+
+    arg('--dataset-type', type=str, choices=['train', 'validation'], 
+    dest='dataset_type', required=True, 
+    help='type of the dataset "train" or "validation"')
 
     runtime_logger.debug('2. parsing arguments... \n')
     args = parser.parse_args()
@@ -55,20 +73,39 @@ def data_pipeline():
     # parsing directories and other data arguments
 
     config_dir = pathlib.Path(args.config_dir)
-    output_dir = pathlib.Path(args.output_dir)
-    data_dir = pathlib.Path(args.data_dir)
 
-    output_dir.mkdir(exist_ok=True, parents=True)
+    orig_data_dir = pathlib.Path(args.orig_data_dir)
+    fake_data_dir = pathlib.Path(args.deepfake_data_dir)
+
+    orig_output_dir = pathlib.Path(args.orig_crop_dir)
+    fake_output_dir = pathlib.Path(args.fake_crop_dir)
+
+    # initializing crop output directories 
+
+    os.makedirs(orig_output_dir, exist_ok=True)
+    os.makedirs(fake_output_dir, exist_ok=True)
 
     runtime_logger.debug('3. loading configuration files... \n')
 
     img_config = utils.load_config(config_path=config_dir)
 
-    dataset_type = img_config.get("dataset_type")  # train or valid
-    # fp16, int16, int8, etc.
-    data_type = utils.resolve_numpy_precision(img_config.get("data_type"))
-    img_height = img_config.get("image_size")  # height of the image
-    img_width = img_config.get("image_size")  # width of the image
+    dataset_type = args.dataset_type
+    min_face_size = img_config.get("min_face_size", 160)
+
+    try:
+        mtcnn_img_height = img_config.get("mtcnn_image_size")  # height of the image
+        mtcnn_img_width = img_config.get("mtcnn_image_size")  # width of the image
+    except(KeyError):
+        raise SystemExit("""you did not provide 'mtcnn_image_size' parameter,
+            as it is required for fetching faces from the video frames. 
+            The 'mtcnn_image_size' is basically the resolution 
+            of the videos you have in your dataset.""")
+    try:
+        encoder_image_height = img_config.get("encoder_image_size")
+        encoder_image_width = img_config.get("encoder_image_size")
+    except(KeyError):
+        raise SystemExit("""You didn't specified 'encoder_image_size' parameter, \
+            which is stands for the size of the output cropped faces""")
 
     runtime_logger.debug('4. initializing augmentations \n')
 
@@ -77,55 +114,101 @@ def data_pipeline():
     if dataset_type.lower() == "train":
 
         augments = augmentations.get_training_augmentations(
-            HEIGHT=img_height,
-            WIDTH=img_width,
+            HEIGHT=mtcnn_img_height,
+            WIDTH=mtcnn_img_width,
         )
 
-    elif dataset_type.lower() == 'valid':
+    elif dataset_type.lower() == "validation":
 
         augments = augmentations.get_validation_augmentations(
-            HEIGHT=img_height,
-            WIDTH=img_width
+            HEIGHT=mtcnn_img_height,
+            WIDTH=mtcnn_img_width
         )
 
     runtime_logger.debug('5. applying transformations... \n \n')
 
-    # iterating over the entire dataset of images and applying
-    # transformations, based on the type of the dataset
 
-    for img_file_path in os.listdir(data_dir):
+    # extracting video paths from the original and fake video paths
 
-        full_path = os.path.join(data_dir.__str__(), img_file_path)
-        output_img_path = os.path.join(output_dir.__str__(), img_file_path)
+    orig_video_paths = get_video_paths(orig_data_dir)
+    fake_video_paths = get_video_paths(fake_data_dir)
 
-        try:
-            img = cv2.imread(full_path, cv2.IMREAD_UNCHANGED)
-            if img is None:
-                raise FileNotFoundError
-            if not img_file_path.endswith("jpeg") and not img_file_path.endswith("jpg"):
-                img = utils.convert_to_jpeg(img)
-            augmented_img = augments(image=img)['image']
+    video_dataset = VideoFaceDataset(
+        orig_video_paths=orig_video_paths, 
+        fake_video_paths=fake_video_paths,
+        frames_per_vid=300
+    )
 
-        except (FileNotFoundError):
-            raise RuntimeError("file not found. \
-            Provided directory may be invalid or does not exist.")
+    loader = data.DataLoader(
+        orig_dataset=video_dataset,
+        shuffle=False,
+        num_workers=os.cpu_count()-2,
+        batch_size=1, # one video per iteration
+    )
 
-        except (Exception) as err:
-            err_logger.error(err)
-            raise RuntimeError(err)
+    face_detector = MTCNNFaceDetector(
+        image_size=mtcnn_img_height, 
+        use_landmarks=True, 
+        keep_all_pred_faces=False,
+        min_face_size=min_face_size,
+        inf_device="cpu",
+    )
 
-        try:
-            success = cv2.imwrite(filename=output_img_path,
-                                  img=augmented_img.astype(data_type))
-            if not success:
-                raise RuntimeError(
-                    "failed to save image to the provided location")
-        except (Exception) as save_err:
-            err_logger.error(save_err)
+    # processing videos 
 
-        runtime_logger.debug(
-            "PREPROCESSING HAS BEEN SUCCESSFULLY COMPLETED! \n")
+    curr_video = 0
 
+    for orig_frames, fake_frames in tqdm(loader, desc="video #%s: " % str(curr_video)):
+
+        video_id = os.path.splitext(os.path.basename(orig_video_paths[curr_video]))[0]
+
+        orig_video_dir = os.path.join(orig_output_dir, video_id)
+        fake_video_dir = os.path.join(fake_output_dir, video_id)
+
+        for frame_idx in range(len(orig_frames)):
+
+            # augmenting original 
+            orig_frame = orig_frames[frame_idx]
+            fake_frame = fake_frames[frame_idx]
+
+            augmented_frame = augments(image=orig_frame)['image']
+
+            # predicting faces bounding boxes and landmarks 
+            orig_face_boxes, _ = face_detector.detect_faces(augmented_frame)
+            fake_face_boxes, _ = face_detector.detect_faces(fake_frame)
+            
+            # matching bounding boxes between each other 
+          
+            for box_idx in range(len(orig_face_boxes)):
+
+                ox1, oy1, ox2, oy2 = orig_face_boxes[box_idx]
+                fx1, fy1, fx2, fy2 = fake_face_boxes[box_idx]
+
+                orig_cropped_face = augmented_frame[ox1:ox2, oy1:oy2]
+                fake_cropped_face = fake_frame[fx1:fx2, fy1:fy2]
+
+                # resizing face crop, according to the encoder input requirements
+
+                resize_face_crop = resize.IsotropicResize(
+                    target_shape=(encoder_image_height, encoder_image_width)
+                )
+ 
+                resized_orig_face = resize_face_crop(image=orig_cropped_face)
+                resized_fake_face = resize_face_crop(image=fake_cropped_face)
+
+                orig_frame_path = os.path.join(orig_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
+                fake_frame_path = os.path.join(fake_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
+
+                # saving extracted fake and original faces
+                cv2.imwrite(filename=orig_frame_path, img=resized_orig_face)
+                cv2.imwrite(filename=fake_frame_path, img=resized_fake_face)
+
+        curr_video += 1
+
+    print("processing pipeline completed")
 
 if __name__ == '__main__':
     data_pipeline()
+
+
+

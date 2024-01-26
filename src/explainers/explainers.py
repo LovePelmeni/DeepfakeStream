@@ -1,5 +1,5 @@
 import numpy
-from src.datasets import datasets
+from src.training.datasets import datasets
 from torch import nn
 import typing
 import logging
@@ -25,7 +25,12 @@ def interpret_network_predictions(
     Leverages technique of Grad-CAM to 
     give a visual interpretation on how 
     model distinguishes between good and bad 
-    features on the image
+    features on the image.
+
+    NOTE:
+        implied to use this method
+        inside jupyter notebook for
+        analytical purposes
     """
     cam = GradCAM(
         model=network,
@@ -59,3 +64,6 @@ def interpret_network_predictions(
         ax[sample_idx, 0].imshow(visual_img)
         ax[sample_idx, 1].imshow(visualization)
     plt.imshow()
+
+
+

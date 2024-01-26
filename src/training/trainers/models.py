@@ -91,10 +91,7 @@ class NetworkTrainer(object):
         worker_seed = torch.initial_seed() % 2 ** 32
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
-    
-    def load_from_checkpoint(self, checkpoint_path: str):
-        pass
-
+        
     def save_checkpoint(self, 
         loss: float, 
         epoch: int
@@ -106,7 +103,7 @@ class NetworkTrainer(object):
 
         torch.save(
             {
-                'network': self.network.cpu().state_dict(),
+                'anetwork': self.network.cpu().state_dict(),
                 'optimizer': self.optimizer.state_dict(),
                 'lr_scheduler': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
                 'batch_size': self.batch_size,
@@ -240,10 +237,3 @@ class NetworkTrainer(object):
                     torch.ones_like(output_labels)
                 )
                 return metric
-
-    def predict(self, input_images: typing.List[str]):
-        self.network.eval()
-        batch_imgs = torch.stack(input_images).to(self.train_device)
-        predictions = self.network.forward(batch_imgs).cpu()
-        return predictions
-
