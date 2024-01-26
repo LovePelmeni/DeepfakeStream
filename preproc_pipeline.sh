@@ -24,6 +24,7 @@ then
 elif [ "$MODE" == "validation" ];
 then 
     FILE=./env_vars/val_preproc_pipeline.env
+    
     if [ -f "$FILE" ]; 
     then source $FILE
     else echo "$FILE does not exist.\n
@@ -41,6 +42,10 @@ else
 fi
 
 python3 -u -m src.pipelines.preproc_pipeline \
- --config-dir $DATA_CONFIG_DIR \
- --data-dir $DATA_DIR \
- --output-dir $AUGMENTED_DATA_DIR
+ --data-config-dir $DATA_CONFIG_DIR \
+ --orig-data-dir $ORIG_DATA_DIR \
+ --fake-data-dir $FAKE_DATA_DIR \
+ --orig-crop-dir $ORIG_OUTPUT_DIR \
+ --fake-crop-dir $FAKE_OUTPUT_DIR \
+ --dataset-type "$MODE"
+
