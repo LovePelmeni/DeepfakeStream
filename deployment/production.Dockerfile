@@ -9,11 +9,17 @@ ENV LD_LIBRARY_PATH='${cdCUDA_HOME}/lib64:${LD_LIBRARY_PATH}'
 ENV TORCH_CUDA_ARCH_LIST="6.0;7.0"
 ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
 
+# Downloading encoder weights from the remote repository of HuggingFace
+
+RUN wget -P ./weights/ https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/tf_efficientnet_b5_ns-1dbc32de.pth
+RUN wget -p ./weights/ https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/tf_efficientnet_b7_ns-1dbc32de.pth
+
+
 FROM python:3.9-slim-bullseye 
 WORKDIR /workspace 
 
 # copying nvidia nvcc build files
-COPY --chown=nvcc_build ./ ./workspace
+COPY --chown=nvcc_build ./weights/ ./workspace/weights
 
 # project http environment variables
 
@@ -37,6 +43,7 @@ COPY ./pyproject.toml ./pyproject.toml
 COPY ./poetry.lock ./poetry.lock
 COPY ./flake8 ./flake8
 COPY ./requirements ./requirements
+COPY ./weights ./weights
 
 # installing and upgrading 
 RUN pip install --upgrade pip && pip install poetry
