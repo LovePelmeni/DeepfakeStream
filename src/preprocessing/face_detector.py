@@ -4,7 +4,9 @@ import torch
 from facenet_pytorch import MTCNN
 import typing
 import cv2
-from collections import OrderedDict
+import numpy.random
+import random
+
 
 cv2.setNumThreads(0)
 cv2.ocl.setUseOpenCL(False)
@@ -61,9 +63,20 @@ class VideoFaceDataset(data.Dataset):
     Dataset for processing deepfake videos
     and extracting human faces from the 
     image scenes
+
+    Parameters:
+    -----------
+    
+    video_paths - (list) - list of video paths 
+    frames_per_vid - (int) - frames to extract from each video
+    (number should be picked with thorough consideration, bigger number is recommended for short videos)
     """
-    def __init__(self, video_paths: typing.List):
+    def __init__(self, 
+        video_paths: typing.List, 
+        frames_per_vid: float = 0.5,
+    ):
         self.video_paths = video_paths
+        self.frames_per_vid = frames_per_vid
 
     def __len__(self):
         return len(self.video_paths)
@@ -74,18 +87,27 @@ class VideoFaceDataset(data.Dataset):
         video_buffer = cv2.VideoCapture(filename=video_path)
         
         frame_num = int(video_buffer.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        frames_to_extract = numpy.random.choice(
+            a=numpy.arange(frame_num),
+            size=self.frames_per_vid * frame_num
+        )
+        
         frames = []
 
         for idx in range(frame_num): # pick each 32-th video frame
 
-            success, frame = video_buffer.read()
+            success = video_buffer.grab()
 
             if not success: 
                 continue 
 
+            frame = video_buffer.retrieve()
+
             if len(frame.shape) == 3:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            frames.append(frame)
-        return frames
 
+            if frame in frames_to_extract:
+                frames.append(frame)
+
+        return frames
