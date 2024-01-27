@@ -85,7 +85,14 @@ def measure_classifier_inference_time(
     Returns:
         - average time across all repetitions in milliseconds.
     """
-    # generating data for running inference
+
+    # fixating GPU clock speed
+
+    if gpu_clock_speed is not None:
+        set_gpu_clock_speed(device=train_device, gpu_clock_speed=gpu_clock_speed)
+
+    # generating inference data
+
     gpu_data = torch.stack([
         torch.randn(size=img_shape).to(torch.float32).permute(2, 0, 1) 
         for _ in range(batch_size)
@@ -118,6 +125,11 @@ def measure_classifier_inference_time(
             time = starter.elapsed_time(ender)
 
             times.append(time / 100) # converting to seconds by dividing by 100
+
+    # resetting gpu clock speed back to default
+
+    if gpu_clock_speed is not None:
+        reset_gpu_clock_speed(device=train_device)
 
     return numpy.mean(times)
 
