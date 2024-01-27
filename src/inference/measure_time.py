@@ -3,10 +3,21 @@ import typing
 import torch 
 import numpy 
 import facenet_pytorch
+import gc
 import subprocess
+import logging 
 import sys
 
+Logger = logging.getLogger("measure_logger")
+handler = logging.StreamHandler(stream=sys.stdout)
+formatter = logging.Formatter()
+
+handler.setFormatter(formatter)
 Logger.addHandler(handler)
+
+def flush_cache():
+    torch.cuda.empty_cache()
+    _ = gc.collect()
 
 def set_gpu_clock_speed(device: torch.device, gpu_clock_speed: numpy.uint256) -> None:
     """
@@ -54,7 +65,8 @@ def measure_classifier_inference_time(
     img_shape: typing.Tuple,
     train_device: typing.Literal['cuda', 'mps', 'cpu'],
     total_repetitions: int = 100,
-    warmup_iters: int = 10
+    warmup_iters: int = 10,
+    gpu_clock_speed: int = None
 ):
     """
     Function responsible for measuring inference time
@@ -95,12 +107,18 @@ def measure_classifier_inference_time(
     
     with torch.no_grad():
         for _ in range(total_repetitions):
+
+            flush_cache()
             starter.record()
-            _ = gpu_network.forward(gpu_data.to(train_device))
+
+            predictions = gpu_network.forward(gpu_data.to(train_device))
             ender.record()
+
             torch.cuda.synchronize()
             time = starter.elapsed_time(ender)
+
             times.append(time / 100) # converting to seconds by dividing by 100
+
     return numpy.mean(times)
 
 def measure_face_detector_inference_time(
