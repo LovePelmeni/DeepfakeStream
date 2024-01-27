@@ -3,6 +3,50 @@ import typing
 import torch 
 import numpy 
 import facenet_pytorch
+import subprocess
+import sys
+
+Logger.addHandler(handler)
+
+def set_gpu_clock_speed(device: torch.device, gpu_clock_speed: numpy.uint256) -> None:
+    """
+    Sets clock speed for the GPU unit to
+    ensure reproducibility. Leverages 
+    nvidia-smi sdk 
+
+    Parameters:
+        - gpu_speed (integer)
+    """
+    try:
+        device_name = torch.cuda.get_device_name(device=device)
+        process = subprocess.Popen(args="nvidia-smi", stdout=subprocess.PIPE, shell=True)
+
+        _, _ = process.communicate() 
+        access_command = f"nvidia-smi -pm ENABLED -i {device_name}"
+        clock_speed_set_command = f"nvidia-smi -lgc {gpu_clock_speed} -i {device_name}"
+
+        process = subprocess.run(args=access_command, shell=True)
+        process = subprocess.run(args=clock_speed_set_command, shell=True)
+
+        # checking for execution code 
+        process.check_returncode()
+
+    except(subprocess.CalledProcessError) as err:
+
+        Logger.error(err)
+        raise RuntimeError("Failed to check ")
+
+def reset_gpu_clock_speed(device: torch.device) -> None:
+    """
+    Resets GPU clock speed to default.
+
+    Parameters:
+    ----------
+    device - (torch.device) - GPU instance.
+    """
+    device_name = torch.cuda.get_device_name(device)
+    subprocess.run(f"sudo nvidia-smi -pm ENABLED -i {device_name}", shell=True)
+    subprocess.run(f"sudo nvidia-smi -rgc -i {device_name}", shell=True)
 
 def measure_classifier_inference_time(
     network: nn.Module, 
