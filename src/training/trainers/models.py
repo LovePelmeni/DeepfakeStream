@@ -5,10 +5,10 @@ import logging
 from torch.utils import data
 import numpy.random
 import random
-from src.trainers.regularization import EarlyStopping
+from src.training.trainers.regularization import EarlyStopping
 from tqdm import tqdm
 import gc
-from src.evaluators import sliced_evaluator
+from src.training.evaluators import sliced_evaluator
 import os
 
 trainer_logger = logging.getLogger("trainer_logger.log")
@@ -156,7 +156,8 @@ class NetworkTrainer(object):
                 loss = self.loss_function(softmax_probs, classes)
                 epoch_loss += loss.item()
 
-                del predictions
+                # flushing cached predictions
+                predictions.zero_()
 
                 gc.collect()
                 torch.cuda.empty_cache()
