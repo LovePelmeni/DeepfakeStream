@@ -74,7 +74,9 @@ class NetworkTrainer(object):
         self.early_dataset = early_stop_dataset
         self.early_start = early_start
         self.early_stopper = EarlyStopping(
-            patience=early_patience, min_diff=minimum_metric_difference)
+            patience=early_patience, 
+            min_diff=minimum_metric_difference
+        )
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
@@ -132,6 +134,7 @@ class NetworkTrainer(object):
             dataset=train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
+            num_workers=self.loader_num_workers,
             worker_init_fn=self.seed_loader_worker,
             generator=self.seed_generator
         )
@@ -193,7 +196,7 @@ class NetworkTrainer(object):
                 evaluator = sliced_evaluator.SlicedEvaluation(
                     network=self.network,
                     inf_device=self.train_device,
-                    eval_metric=self.eval_metric,
+                    eval_metric=self.eval_metric
                 )
                 eval_metrics = evaluator.evaluate(self.early_dataset)
                 return eval_metrics
@@ -202,7 +205,7 @@ class NetworkTrainer(object):
                 try:
                     loader = data.DataLoader(
                         dataset=validation_dataset,
-                        batch_size=1,
+                        batch_size=self.batch_size,
                         shuffle=True,
                         num_workers=self.loader_num_workers,
                         worker_init_fn=self.seed_loader_worker,
@@ -226,7 +229,7 @@ class NetworkTrainer(object):
                     pred_labels = torch.argmax(softmax_probs, dim=1, keepdim=False)
                     binary_labels = torch.where(pred_labels == classes, 1, 0)
 
-                    del predictions
+                    predictions.zero_()
                     gc.collect()
                     
                     output_labels = torch.cat([output_labels, binary_labels])
