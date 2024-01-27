@@ -90,7 +90,7 @@ class VideoFaceDataset(data.Dataset):
 
         frames_to_extract = numpy.random.choice(
             a=numpy.arange(frame_num),
-            size=self.frames_per_vid * frame_num
+            size=max(self.frames_per_vid * frame_num, 1)
         )
         
         frames = []
