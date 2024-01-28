@@ -15,5 +15,5 @@ I've listed up list some of the design documents, which you can read and analyze
 - **DEPLOYMENT.md** - overview on project's deployment process, key files and strategies.
 - **DRIFT.md** - overview on statistical / non-statistical methods, used for detecting data drift inside the system.
 - **AUGMENTATIONS.md** - overview on image augmentations and transformations, applied to the data.
-
+- **FACE_DETECTION.md** - overview of the method, used for detecting human faces on images.
 
