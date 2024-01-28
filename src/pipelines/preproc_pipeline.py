@@ -91,6 +91,7 @@ def data_pipeline():
 
     dataset_type = args.dataset_type
     min_face_size = img_config.get("min_face_size", 160)
+    frames_per_vid_ratio = img_config.get("frames_per_vid_ratio") # percentage of videos to extract from each video
 
     try:
         mtcnn_img_height = img_config.get("mtcnn_image_size")  # height of the image
@@ -136,13 +137,13 @@ def data_pipeline():
     video_dataset = VideoFaceDataset(
         orig_video_paths=orig_video_paths, 
         fake_video_paths=fake_video_paths,
-        frames_per_vid=300
+        frames_per_vid=frames_per_vid_ratio # 1 percent of frames from the video is selected to avoid duplicates
     )
 
-    loader = data.DataLoader(
+    video_loader = data.DataLoader(
         orig_dataset=video_dataset,
         shuffle=False,
-        num_workers=os.cpu_count()-2,
+        num_workers=max(os.cpu_count()-2, 0),
         batch_size=1, # one video per iteration
     )
 
@@ -158,7 +159,7 @@ def data_pipeline():
 
     curr_video = 0
 
-    for orig_frames, fake_frames in tqdm(loader, desc="video #%s: " % str(curr_video)):
+    for orig_frames, fake_frames in tqdm(video_loader, desc="video #%s: " % str(curr_video)):
 
         video_id = os.path.splitext(os.path.basename(orig_video_paths[curr_video]))[0]
 
@@ -193,8 +194,8 @@ def data_pipeline():
                     target_shape=(encoder_image_height, encoder_image_width)
                 )
  
-                resized_orig_face = resize_face_crop(image=orig_cropped_face)
-                resized_fake_face = resize_face_crop(image=fake_cropped_face)
+                resized_orig_face = resize_face_crop(image=orig_cropped_face)['image']
+                resized_fake_face = resize_face_crop(image=fake_cropped_face)['image']
 
                 orig_frame_path = os.path.join(orig_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
                 fake_frame_path = os.path.join(fake_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
@@ -209,6 +210,5 @@ def data_pipeline():
 
 if __name__ == '__main__':
     data_pipeline()
-
 
 
