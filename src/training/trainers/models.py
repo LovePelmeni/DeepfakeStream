@@ -5,7 +5,7 @@ import logging
 from torch.utils import data
 import numpy.random
 import random
-from src.training.trainers.regularization import EarlyStopping
+from src.training.trainers.regularization import EarlyStopping, LabelSmoothing
 from tqdm import tqdm
 import gc
 from src.training.evaluators import sliced_evaluator
@@ -61,6 +61,7 @@ class NetworkTrainer(object):
                  lr_scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
+                 label_smoothing_eps: float = 0
                  ):
 
         self.network = network.to(train_device)
@@ -77,6 +78,8 @@ class NetworkTrainer(object):
             patience=early_patience, 
             min_diff=minimum_metric_difference
         )
+
+        self.label_smoother = LabelSmoothing(etta=label_smoothing_eps)
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
@@ -156,7 +159,8 @@ class NetworkTrainer(object):
                     imgs.clone().detach().to(self.train_device))
 
                 softmax_probs = torch.softmax(predictions, dim=1)
-                loss = self.loss_function(softmax_probs, classes)
+                smoothed_softmax_probs = self.label_smoother(softmax_probs)
+                loss = self.loss_function(smoothed_softmax_probs, classes)
                 epoch_loss += loss.item()
 
                 # flushing cached predictions
