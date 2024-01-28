@@ -21,27 +21,25 @@ trainer_logger.addHandler(handler)
 
 class NetworkTrainer(object):
     """
-    Pipeline class, which encompasses
-    model training / validation and inference
-    processes.
+    Pipeline class, used for training 
+    and evaluating neural networks
 
     Parameters:
     -----------
-
-    network - (nn.Module) -
-    loss_function (nn.Module) -
-    eval_metric - (nn.Module) -  
-    early_patience - int - 
-    early_stop_dataset (data.Dataset) -
-    minimum_metric_difference - ()
-    batch_size - (int) - 
-    max_epochs - (int) -
-    optimizer - (nn.Module) -
-    major_version - (int)
-    minor_version - (int)
-    lr_scheduler - (nn.Module) - 
-    train_device - (typing.Literal)
-    loader_num_workers - ()
+ 
+    network - (nn.Module) - neural network (nn.Module) object
+    loss_function (nn.Module) - loss function to use for model training
+    eval_metric - (nn.Module) - evaluation metric to use for model evaluation
+    early_patience - indicates the number of tolerable epochs, when metric constantly decreases or not increasing.
+    early_stop_dataset (data.Dataset) - dataset to use for Early Stopping.
+    minimum_metric_difference - minimum difference between 2 eval metrics (Early Stopping parameter)
+    batch_size - (int) - size of the data batch to pass inside the model
+    max_epochs - (int) - maximum number of epochs to train
+    optimizer - (nn.Module) - optimizer algorithm to use for training 
+    lr_scheduler - (nn.Module) - Learning Rate Scheduling technique to use during training / fine-tuning
+    train_device - (typing.Literal) - device to use for model training ("cuda:%s", "cuda", "cpu", "mps")
+    loader_num_workers - number of CPU threads to use for data loading during training
+    label_smoothing_eps - etta parameter for Label Smoothing regularization (default 0), which has no effect
 
     """
 
