@@ -1,6 +1,7 @@
 from torch import nn
 import torch
 
+
 class EarlyStopping(object):
     """
     Class for regularizing 
@@ -26,15 +27,15 @@ class EarlyStopping(object):
         return (self.current_patience == 0)
 
 
-
 class LabelSmoothing(nn.Module):
 
     def __init__(self, etta: float):
         super(LabelSmoothing, self).__init__(etta)
 
-        self.etta = etta 
-        self.smoother = lambda logits: (1 - etta) * logits + etta * (1 / len(logits))
-    
+        self.etta = etta
+        self.smoother = lambda logits: (
+            1 - etta) * logits + etta * (1 / len(logits))
+
     def forward(self, dist_logits: torch.Tensor):
         smoothed_logits = self.smoother(dist_logits)
         return smoothed_logits

@@ -4,9 +4,9 @@ import cv2
 import numpy
 import torch
 import logging
+from src.training.trainers import regularization
 
 logger = logging.getLogger("dataset_logger")
-
 
 class DeepfakeDataset(data.Dataset):
     """
@@ -34,12 +34,10 @@ class DeepfakeDataset(data.Dataset):
 
     def __init__(self,
         image_paths: typing.List[str],
-        image_labels: typing.List[typing.Union[str, int]],
-        label_smoothing_eps: float = 0
+        image_labels: typing.List[typing.Union[str, int]]
     ):
         self.image_paths = image_paths
         self.image_labels = image_labels
-        self.label_smoothing_eps = label_smoothing_eps
 
     def __len__(self):
         return len(self.image_paths)
@@ -67,7 +65,12 @@ class DeepfakeDataset(data.Dataset):
             image = self.get_tensor_image(idx)
             img_class = self.get_class(idx)
             return image, img_class
+    
         except (Exception) as err:
             logger.error(err)
             raise RuntimeError(
                 'failed to parse data, internal error occurred')
+
+
+
+

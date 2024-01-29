@@ -13,11 +13,13 @@ import os
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 handler.setFormatter(formatter)
 trainer_logger.setLevel(logging.WARN)
 trainer_logger.addHandler(handler)
+
 
 class NetworkTrainer(object):
     """
@@ -26,7 +28,7 @@ class NetworkTrainer(object):
 
     Parameters:
     -----------
- 
+
     network - (nn.Module) - neural network (nn.Module) object
     loss_function (nn.Module) - loss function to use for model training
     eval_metric - (nn.Module) - evaluation metric to use for model evaluation
@@ -73,7 +75,7 @@ class NetworkTrainer(object):
         self.early_dataset = early_stop_dataset
         self.early_start = early_start
         self.early_stopper = EarlyStopping(
-            patience=early_patience, 
+            patience=early_patience,
             min_diff=minimum_metric_difference
         )
 
@@ -86,7 +88,7 @@ class NetworkTrainer(object):
         self.seed_generator = torch.Generator()
         self.seed_generator.manual_seed(0)
 
-        self.checkpoint_dir = checkpoint_dir 
+        self.checkpoint_dir = checkpoint_dir
         self.output_weights_dir = output_weights_dir
 
     @staticmethod
@@ -94,13 +96,13 @@ class NetworkTrainer(object):
         worker_seed = torch.initial_seed() % 2 ** 32
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
-        
-    def save_checkpoint(self, 
-        loss: float, 
-        epoch: int
-    ):
+
+    def save_checkpoint(self,
+                        loss: float,
+                        epoch: int
+                        ):
         checkpoint_path = os.path.join(
-            self.checkpoint_dir, 
+            self.checkpoint_dir,
             "checkpoint_epoch_%s.pth" % str(epoch)
         )
 
@@ -149,7 +151,7 @@ class NetworkTrainer(object):
             epoch_loss = 0
 
             for imgs, classes in tqdm(
-                iterable=loader, 
+                iterable=loader,
                 desc='EPOCH %s, LOSS: %s, EVAL METRIC: %s ' % (
                     str(epoch), str(best_loss), str(best_eval_metric))):
 
@@ -213,7 +215,7 @@ class NetworkTrainer(object):
                         worker_init_fn=self.seed_loader_worker,
                         generator=self.seed_generator,
                     )
-                except(ValueError) as val_err:
+                except (ValueError) as val_err:
                     trainer_logger.error(val_err)
                     raise SystemExit(
                         """RuntimeError: Validation dataset is empty,
@@ -226,14 +228,15 @@ class NetworkTrainer(object):
 
                     predictions = self.network.forward(
                         imgs.clone().detach().to(self.train_device)).cpu()
-                    
+
                     softmax_probs = torch.softmax(predictions, dim=1)
-                    pred_labels = torch.argmax(softmax_probs, dim=1, keepdim=False)
+                    pred_labels = torch.argmax(
+                        softmax_probs, dim=1, keepdim=False)
                     binary_labels = torch.where(pred_labels == classes, 1, 0)
 
                     predictions.zero_()
                     gc.collect()
-                    
+
                     output_labels = torch.cat([output_labels, binary_labels])
 
                 # computing evaluation metric
