@@ -71,12 +71,6 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compos
 
     return albumentations.Compose(
         transforms=[
-            transforms.ImageCompression(
-                quality_lower=60,
-                quality_upper=100,
-                compression_type=0
-            ),
-            albumentations.HorizontalFlip(p=0.5),
             albumentations.OneOf(
                 transforms=[
                     resize.IsotropicResize(
@@ -96,6 +90,12 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compos
                     ),
                 ]
             ),
+            transforms.ImageCompression(
+                quality_lower=60,
+                quality_upper=100,
+                compression_type=0
+            ),
+            albumentations.HorizontalFlip(p=0.5),
             albumentations.OneOf(
                 transforms=[
                     albumentations.RandomBrightnessContrast(),
@@ -103,14 +103,9 @@ def get_training_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Compos
                     albumentations.HueSaturationValue(p=0.5),
                 ]
             ),
-            albumentations.PadIfNeeded(
-                min_height=HEIGHT,
-                min_width=WIDTH,
-                border_mode=cv2.BORDER_REFLECT
-            ),
             albumentations.ShiftScaleRotate(
                 shift_limit=1,
-                scale_limit=0.7,
+                scale_limit=0.5,
                 rotate_limit=10,
                 border_mode=cv2.BORDER_CONSTANT
             )
@@ -128,21 +123,17 @@ def get_validation_augmentations(HEIGHT: int, WIDTH: int) -> albumentations.Comp
     """
     return albumentations.Compose(
         transforms=[
-            transforms.ImageCompression(
-                quality_lower=90,
-                quality_upper=100,
-                compression_type=0,
-                p=0.3
-            ),
             resize.IsotropicResize(
                 interpolation_down=cv2.INTER_AREA,
                 interpolation_up=cv2.INTER_LINEAR,
                 target_shape=(HEIGHT, WIDTH)
             ),
-            albumentations.PadIfNeeded(
-                min_height=HEIGHT,
-                min_width=WIDTH,
-                border_mode=cv2.BORDER_REFLECT
+            transforms.ImageCompression(
+                quality_lower=90,
+                quality_upper=100,
+                compression_type=0,
+                p=0.3
             )
         ]
     )
+

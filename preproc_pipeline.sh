@@ -42,10 +42,8 @@ else
 fi
 
 python3 -u -m src.pipelines.preproc_pipeline \
- --data-config-dir $DATA_CONFIG_DIR \
- --orig-data-dir $ORIG_DATA_DIR \
- --fake-data-dir $FAKE_DATA_DIR \
- --orig-crop-dir $ORIG_OUTPUT_DIR \
- --fake-crop-dir $FAKE_OUTPUT_DIR \
+ --json-data-config-path $JSON_DATA_CONFIG_DIR \
+ --data-dir $DATA_DIR \
+ --csv-labels-crop-path $CSV_LABELS_CROP_PATH \
+ --crop-dir $OUTPUT_CROP_DIR \
  --dataset-type "$MODE"
-

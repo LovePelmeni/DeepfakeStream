@@ -25,17 +25,21 @@ def get_originals_without_fakes(root_dir: str):
 
     """
     paths = []
+    for metadata_url in glob(root_dir=root_dir, pathname="**/*.json", recursive=True):
 
-    for metadata in glob(pathname=os.path.join(root_dir)):
-        with open(metadata, mode='r') as json_file:
+        metadata_path = os.path.join(root_dir, metadata_url)
+        with open(metadata_path, mode='r') as json_file:
 
             config = json.load(json_file)
-            base_path = '/'.join(metadata.split('/')[:-1])
+            base_path = '/'.join(metadata_path.split('/')[:-1])
 
             for video_id, row_config in config.items():
                 original = row_config.get("original", None)
+                video_path = os.path.join(base_path, video_id)
                 if not original:
-                    paths.append(os.path.join(base_path, video_id))
+                    if os.path.exists(video_path):
+                        paths.append(video_path)
+
         json_file.close()
     return paths
 
@@ -49,22 +53,31 @@ def get_fakes_without_originals(root_dir: str):
     root_dir - directory, containing deep faked videos
     """
     paths = []
-    for metadata in glob(pathname=os.path.join(root_dir, "")):
-        with open(metadata, mode='r') as json_config:
+    for metadata_url in glob(root_dir=root_dir, pathname="**/*.json", recursive=True):
+
+        metadata_path = os.path.join(root_dir, metadata_url)
+        with open(metadata_path, mode='r') as json_config:
+
             config = json.load(json_config)
             for video_id, row_config in config.items():
+
                 if 'original' in row_config:
-                    paths.append(video_id)
+                    video_path = os.path.join(root_dir, video_id)
+                    if os.path.exists(video_path):
+                        paths.append(video_path)
+
         json_config.close()
+    return paths
 
 def get_orig_fake_pairs(root_dir: str):
 
     pairs = []
-    for metadata in glob(pathname=os.path.join(root_dir, "*/metadata.json")):
+    for metadata_url in glob(root_dir=root_dir, pathname="**/*.json", recursive=True):
+        
+        metadata_path = os.path.join(root_dir, metadata_url)
+        base_path = '/'.join(metadata_url.split('/')[:-1])
 
-        base_path = '/'.join(metadata.split('/')[:-1])
-
-        with open(metadata, mode='r') as json_file:
+        with open(metadata_path, mode='r') as json_file:
             config = json.load(json_file)
 
             for fake_id, row_config in config.items():

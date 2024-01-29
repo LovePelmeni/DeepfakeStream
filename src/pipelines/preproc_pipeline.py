@@ -2,8 +2,9 @@ import src.pipelines.train_utils as utils
 from src.preprocessing import augmentations
 from src.preprocessing.augmentations import resize
 from src.preprocessing.face_detector import VideoFaceDataset, MTCNNFaceDetector
-from src.preprocessing.prep_utils import get_video_paths
+from src.preprocessing import prep_utils
 
+import pandas
 import argparse
 import pathlib
 import logging
@@ -12,6 +13,7 @@ from torch.utils import data
 import os
 from tqdm import tqdm
 import cv2
+import numpy
 
 """
 Data preprocessing pipeline
@@ -47,23 +49,22 @@ def data_pipeline():
     description="CLI-based Data Preprocessing Pipeline")
     arg = parser.add_argument
 
-    arg("--orig-data-dir", type=str, dest='orig_data_dir',
-    required=True, help='path to original videos')
+    arg("--data-dir", type=str, dest='data_dir',
+    required=True, help='path, containing original and fake videos.')
 
-    arg('--fake-data-dir', 
-    type=str, dest='deepfake_data_dir', 
-    required=True, help='path to deepfaked videos')
+    arg('--json-data-config-path', type=str, dest='prep_config_path', required=True,
+    help='.json file, containing extra information about preprocessing. \
+        Information for face detector, frames per video to extract, etc...')
 
-    arg('--data-config-dir', type=str, dest='config_dir', required=True,
-    help='configuration .json file, containing information about the data')
+    arg('--csv-labels-crop-path', type=str, dest='labels_crop_path', 
+    required=True, help='path to save labels for cropped faces')
 
-    arg("--orig-crop-dir", type=str, dest='orig_crop_dir',
-    required=True, help='path to save orig cropped faces')
+    arg("--crop-dir", type=str, dest='crop_dir',
+    required=True, help='destination path for storing cropped faces')
 
-    arg("--fake-crop-dir", type=str, dest='fake_crop_dir',
-    required=True, help='path to save fake cropped faces')
-
-    arg('--dataset-type', type=str, choices=['train', 'validation'], 
+    arg('--dataset-type', 
+    type=str, 
+    choices=['train', 'validation'], 
     dest='dataset_type', required=True, 
     help='type of the dataset "train" or "validation"')
 
@@ -72,18 +73,16 @@ def data_pipeline():
 
     # parsing directories and other data arguments
 
-    config_dir = pathlib.Path(args.config_dir)
+    config_dir = pathlib.Path(args.prep_config_path)
+    data_dir = pathlib.Path(args.data_dir)
+    
+    output_labels_crop_dir = pathlib.Path(args.labels_crop_path)
+    output_crop_dir = pathlib.Path(args.crop_dir)
 
-    orig_data_dir = pathlib.Path(args.orig_data_dir)
-    fake_data_dir = pathlib.Path(args.deepfake_data_dir)
+    # initializing crop output directories for crops and it's labels
 
-    orig_output_dir = pathlib.Path(args.orig_crop_dir)
-    fake_output_dir = pathlib.Path(args.fake_crop_dir)
-
-    # initializing crop output directories 
-
-    os.makedirs(orig_output_dir, exist_ok=True)
-    os.makedirs(fake_output_dir, exist_ok=True)
+    os.makedirs(output_labels_crop_dir, exist_ok=True)
+    os.makedirs(output_crop_dir, exist_ok=True)
 
     runtime_logger.debug('3. loading configuration files... \n')
 
@@ -131,17 +130,28 @@ def data_pipeline():
 
     # extracting video paths from the original and fake video paths
 
-    orig_video_paths = get_video_paths(orig_data_dir)
-    fake_video_paths = get_video_paths(fake_data_dir)
+    original_videos = numpy.asarray(prep_utils.get_originals_without_fakes(root_dir=data_dir))
+    fake_videos = numpy.asarray(prep_utils.get_fakes_without_originals(root_dir=data_dir))
+
+    output_video_paths = numpy.concatenate([original_videos, fake_videos])
+    output_video_labels = numpy.concatenate(
+        [
+            numpy.repeat([0], len(original_videos)), 
+            numpy.repeat([1], len(fake_videos))
+        ]
+    )
+    
+    if (len(output_video_paths.flatten()) == 0) or (len(output_video_labels.flatten()) == 0):
+        raise SystemExit("Failed to find unique images for processing.")
 
     video_dataset = VideoFaceDataset(
-        orig_video_paths=orig_video_paths, 
-        fake_video_paths=fake_video_paths,
+        video_paths=output_video_paths, 
+        video_labels=output_video_labels,
         frames_per_vid=frames_per_vid_ratio # 1 percent of frames from the video is selected to avoid duplicates
     )
 
     video_loader = data.DataLoader(
-        orig_dataset=video_dataset,
+        dataset=video_dataset,
         shuffle=False,
         num_workers=max(os.cpu_count()-2, 0),
         batch_size=1, # one video per iteration
@@ -155,38 +165,43 @@ def data_pipeline():
         inf_device="cpu",
     )
 
+    # processing label information
+
+    output_labels = pandas.DataFrame(columns=["crop_path", "label", "video_id"])
+
     # processing videos 
 
     curr_video = 0
 
-    for orig_frames, fake_frames in tqdm(video_loader, desc="video #%s: " % str(curr_video)):
+    for label, ext_frames in tqdm(video_loader, desc="video #%s: " % str(curr_video)):
 
-        video_id = os.path.splitext(os.path.basename(orig_video_paths[curr_video]))[0]
+        video_id = os.path.splitext(
+            os.path.basename(
+                output_video_paths[curr_video]
+                )
+        )[0]
 
-        orig_video_dir = os.path.join(orig_output_dir, video_id)
-        fake_video_dir = os.path.join(fake_output_dir, video_id)
+        for frame_idx in range(len(ext_frames)):
 
-        for frame_idx in range(len(orig_frames)):
+            # augmenting video frame
 
-            # augmenting original 
-            orig_frame = orig_frames[frame_idx]
-            fake_frame = fake_frames[frame_idx]
-
-            augmented_frame = augments(image=orig_frame)['image']
+            video_frame = ext_frames[frame_idx]
+            print(video_frame.numpy().shape)
+            
+            augmented_frame = augments(image=video_frame.numpy())['image']
 
             # predicting faces bounding boxes and landmarks 
-            orig_face_boxes, _ = face_detector.detect_faces(augmented_frame)
-            fake_face_boxes, _ = face_detector.detect_faces(fake_frame)
+            face_boxes, _ = face_detector.detect_faces(augmented_frame)
             
             # matching bounding boxes between each other 
           
-            for box_idx in range(len(orig_face_boxes)):
+            for box_idx in range(len(face_boxes)):
+                
+                print(face_boxes[box_idx])
+                
+                ox1, oy1, ox2, oy2 = face_boxes[box_idx]
 
-                ox1, oy1, ox2, oy2 = orig_face_boxes[box_idx]
-                fx1, fy1, fx2, fy2 = fake_face_boxes[box_idx]
-
-                orig_cropped_face = augmented_frame[ox1:ox2, oy1:oy2]
-                fake_cropped_face = fake_frame[fx1:fx2, fy1:fy2]
+                cropped_face = augmented_frame[ox1:ox2, oy1:oy2]
 
                 # resizing face crop, according to the encoder input requirements
 
@@ -194,21 +209,35 @@ def data_pipeline():
                     target_shape=(encoder_image_height, encoder_image_width)
                 )
  
-                resized_orig_face = resize_face_crop(image=orig_cropped_face)['image']
-                resized_fake_face = resize_face_crop(image=fake_cropped_face)['image']
+                resized_face = resize_face_crop(image=cropped_face)['image']
 
-                orig_frame_path = os.path.join(orig_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
-                fake_frame_path = os.path.join(fake_video_dir, "{}_{}.png".format(str(frame_idx), str(box_idx)))
+                face_file_name = "{}_{}_{}.png".format(str(video_id), str(frame_idx), str(box_idx))
+                frame_path = os.path.join(output_crop_dir, face_file_name)
 
                 # saving extracted fake and original faces
-                cv2.imwrite(filename=orig_frame_path, img=resized_orig_face)
-                cv2.imwrite(filename=fake_frame_path, img=resized_fake_face)
+                cv2.imwrite(filename=frame_path, img=resized_face)
+
+                row = pandas.Series(
+                    data={
+                        'crop_path': frame_path, 
+                        'label': label, 
+                        'video_id': video_id
+                    }
+                )
+                output_labels = pandas.concat([output_labels, row])
 
         curr_video += 1
+
+    if len(output_labels) == 0: 
+        raise SystemExit(
+            """none of the videos, we managed to find, 
+            according to presented CSV label config, does exist.""")
+            
+    # saving final crop output labels
+    output_labels.to_csv(path_or_buf=output_labels_crop_dir)
 
     print("processing pipeline completed")
 
 if __name__ == '__main__':
     data_pipeline()
-
 

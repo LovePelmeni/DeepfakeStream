@@ -12,10 +12,10 @@ import efficientnet_pytorch as effnet
 import logging
 import numpy
 import cv2
-from src.losses import losses
-from src.metrics import metrics
-from src.datasets import datasets
-from src.schedulers import lr_schedulers
+from src.training.losses import losses
+from src.training.metrics import metrics
+from src.training.datasets import datasets
+from src.training.schedulers import lr_schedulers
 
 Logger = logging.getLogger("utils_logger")
 

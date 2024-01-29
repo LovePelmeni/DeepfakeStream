@@ -1,10 +1,15 @@
 from itertools import pairwise
+from signal import SIG_DFL
 import cv2
 import numpy
 import albumentations
 import typing
+import logging 
+import sys
 
-
+Logger = logging.getLogger("aug_logger")
+handler = logging.StreamHandler(stream=sys.stdout)
+Logger.addHandler(handler)
 class IsotropicResize(albumentations.ImageOnlyTransform):
 
     """
@@ -107,7 +112,8 @@ class IsotropicResize(albumentations.ImageOnlyTransform):
                 interpolation=int_policy
             )
 
-        except (TypeError):
+        except (TypeError) as err:
+            Logger.error(err)
             raise RuntimeError('Invalid image format, convertion failed')
 
 
