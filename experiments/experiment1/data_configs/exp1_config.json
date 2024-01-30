@@ -1,5 +1,7 @@
 {
     "mtcnn_image_size": 1024,
     "encoder_image_size": 380,
-    "data_type": "fp16"
+    "min_face_size": 160,
+    "data_type": "fp16",
+    "frames_per_vid_ratio": 0.01
 }
