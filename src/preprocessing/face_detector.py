@@ -6,6 +6,7 @@ import typing
 import cv2
 import numpy.random
 import logging 
+import gc
 
 cv2.setNumThreads(0)
 cv2.ocl.setUseOpenCL(False)
@@ -15,15 +16,11 @@ Logger = logging.getLogger("video_dataset_logger")
 
 class VideoFaceDetector(abc.ABC):
 
-    @abc.abstractproperty
-    def batch_size(self):
-        pass
-
     @abc.abstractmethod
     def detect_faces(self, input_img: torch.Tensor):
         pass
 
-class MTCNNFaceDetector(object):
+class MTCNNFaceDetector(VideoFaceDetector):
     """
     Face Detector CNN Network, based on
     MTCNN (Multi-task Cascaded Convolutional Neural Network) model.
@@ -66,6 +63,9 @@ class MTCNNFaceDetector(object):
             input_img, 
             landmarks=self.use_landmarks
         )
+        if face_boxes is None or face_landmarks is None:
+            return ([], [])
+        
         return (
             [box.tolist() for box in face_boxes], 
             [face.tolist() for face in face_landmarks]
@@ -109,33 +109,36 @@ class VideoFaceDataset(data.Dataset):
             return []
 
         if frame_num == 0: return []
-        frame_num = round(frame_num)
 
         frames_to_extract = numpy.random.choice(
             a=numpy.arange(int(frame_num)),
-            size=max(int(round(self.frames_per_vid * frame_num)), 1)
+            size=max(int(self.frames_per_vid * frame_num), 1)
         )
-        
+
         frames = []
 
-        for _ in range(frame_num): # pick each 32-th video frame
+        for idx in range(frame_num): # pick each 32-th video frame
 
             success = video_buffer.grab()
 
             if not success: 
                 continue 
+                
+            del success
 
             _, frame = video_buffer.retrieve()
 
             if len(frame.shape) == 3:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            if frame in frames_to_extract:
+            if idx in frames_to_extract:
                 frames.append(frame)
+            else:
+                del frame
+                gc.collect()
 
         # closing video buffer after extracting frames 
         video_buffer.release()
-        
         return frames
     
     def __getitem__(self, idx: int):
@@ -143,3 +146,7 @@ class VideoFaceDataset(data.Dataset):
         video_label = self.video_labels[idx]
         frames = self.extract_frames(video_path)
         return video_label, frames
+
+
+
+

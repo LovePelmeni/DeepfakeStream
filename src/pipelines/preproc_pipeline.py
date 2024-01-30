@@ -4,6 +4,7 @@ from src.preprocessing.augmentations import resize
 from src.preprocessing.face_detector import VideoFaceDataset, MTCNNFaceDetector
 from src.preprocessing import prep_utils
 
+import cv2
 import pandas
 import argparse
 import pathlib
@@ -12,8 +13,8 @@ import sys
 from torch.utils import data
 import os
 from tqdm import tqdm
-import cv2
 import numpy
+import torch 
 
 """
 Data preprocessing pipeline
@@ -43,8 +44,6 @@ err_logger.addHandler(err_handler)
 
 def data_pipeline():
 
-    runtime_logger.debug('\n \n1. running preprocessing pipeline... \n')
-
     parser = argparse.ArgumentParser(
     description="CLI-based Data Preprocessing Pipeline")
     arg = parser.add_argument
@@ -68,7 +67,6 @@ def data_pipeline():
     dest='dataset_type', required=True, 
     help='type of the dataset "train" or "validation"')
 
-    runtime_logger.debug('2. parsing arguments... \n')
     args = parser.parse_args()
 
     # parsing directories and other data arguments
@@ -81,10 +79,10 @@ def data_pipeline():
 
     # initializing crop output directories for crops and it's labels
 
-    os.makedirs(output_labels_crop_dir, exist_ok=True)
+    os.makedirs(output_labels_crop_dir.parent, exist_ok=True)
     os.makedirs(output_crop_dir, exist_ok=True)
 
-    runtime_logger.debug('3. loading configuration files... \n')
+    runtime_logger.debug('3. loaded configuration files! \n')
 
     img_config = utils.load_config(config_path=config_dir)
 
@@ -93,40 +91,29 @@ def data_pipeline():
     frames_per_vid_ratio = img_config.get("frames_per_vid_ratio") # percentage of videos to extract from each video
 
     try:
-        mtcnn_img_height = img_config.get("mtcnn_image_size")  # height of the image
-        mtcnn_img_width = img_config.get("mtcnn_image_size")  # width of the image
+        mtcnn_input_size = img_config.get("mtcnn_image_size")  # height of the image
     except(KeyError):
         raise SystemExit("""you did not provide 'mtcnn_image_size' parameter,
             as it is required for fetching faces from the video frames. 
             The 'mtcnn_image_size' is basically the resolution 
             of the videos you have in your dataset.""")
     try:
-        encoder_image_height = img_config.get("encoder_image_size")
-        encoder_image_width = img_config.get("encoder_image_size")
+        encoder_image_size = img_config.get("encoder_image_size")
     except(KeyError):
         raise SystemExit("""You didn't specified 'encoder_image_size' parameter, \
             which is stands for the size of the output cropped faces""")
-
-    runtime_logger.debug('4. initializing augmentations \n')
 
     # picking augmentations
 
     if dataset_type.lower() == "train":
 
         augments = augmentations.get_training_augmentations(
-            HEIGHT=mtcnn_img_height,
-            WIDTH=mtcnn_img_width,
-        )
+        IMAGE_SIZE=mtcnn_input_size)
 
     elif dataset_type.lower() == "validation":
 
         augments = augmentations.get_validation_augmentations(
-            HEIGHT=mtcnn_img_height,
-            WIDTH=mtcnn_img_width
-        )
-
-    runtime_logger.debug('5. applying transformations... \n \n')
-
+        IMAGE_SIZE=mtcnn_input_size)
 
     # extracting video paths from the original and fake video paths
 
@@ -153,12 +140,12 @@ def data_pipeline():
     video_loader = data.DataLoader(
         dataset=video_dataset,
         shuffle=False,
-        num_workers=max(os.cpu_count()-2, 0),
+        num_workers=0,
         batch_size=1, # one video per iteration
     )
 
     face_detector = MTCNNFaceDetector(
-        image_size=mtcnn_img_height, 
+        image_size=mtcnn_input_size, 
         use_landmarks=True, 
         keep_all_pred_faces=False,
         min_face_size=min_face_size,
@@ -173,65 +160,76 @@ def data_pipeline():
 
     curr_video = 0
 
-    for label, ext_frames in tqdm(video_loader, desc="video #%s: " % str(curr_video)):
+    with torch.no_grad():
+        
+        for label, ext_frames in tqdm(video_loader, desc="processing video #%s: " % str(curr_video)):
 
-        video_id = os.path.splitext(
-            os.path.basename(
-                output_video_paths[curr_video]
-                )
-        )[0]
-
-        for frame_idx in range(len(ext_frames)):
-
-            # augmenting video frame
-
-            video_frame = ext_frames[frame_idx]
-            print(video_frame.numpy().shape)
+            video_id = os.path.splitext(
+                os.path.basename(
+                    output_video_paths[curr_video]
+                    )
+            )[0]
             
-            augmented_frame = augments(image=video_frame.numpy())['image']
+            for frame_idx in range(len(ext_frames)):
 
-            # predicting faces bounding boxes and landmarks 
-            face_boxes, _ = face_detector.detect_faces(augmented_frame)
+                # extracting video frame from the video
+                video_frame = ext_frames[frame_idx].squeeze(0).numpy()
+                
+                # converting to RGB format 
+                video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+
+                # augmenting video frame using set of specified augmentations
+                augmented_frame = augments(image=video_frame)['image']
+
+                # predicting faces bounding boxes and landmarks 
+                face_boxes, _ = face_detector.detect_faces(augmented_frame)
+                
+                # matching bounding boxes between each other 
             
-            # matching bounding boxes between each other 
-          
-            for box_idx in range(len(face_boxes)):
-                
-                print(face_boxes[box_idx])
-                
-                ox1, oy1, ox2, oy2 = face_boxes[box_idx]
+                for box_idx in range(len(face_boxes)):
+                    
+                    ox1, oy1, ox2, oy2 = face_boxes[box_idx]
 
-                cropped_face = augmented_frame[ox1:ox2, oy1:oy2]
+                    ox1 = max(round(ox1), 0)
+                    ox2 = max(round(ox2), 0) if ox2 < augmented_frame.shape[0] else augmented_frame.shape[0]
+                    oy1 = max(round(oy1), 0)
+                    oy2 = max(round(oy2), 0) if oy2 < augmented_frame.shape[1] else augmented_frame.shape[1]
 
-                # resizing face crop, according to the encoder input requirements
+                    if ((ox2 - ox1) < min_face_size) or ((oy2 - oy1) < min_face_size):
+                        continue 
+                    
+                    cropped_face = augmented_frame[
+                        round(ox1):round(ox2), 
+                        round(oy1):round(oy2)
+                    ]
 
-                resize_face_crop = resize.IsotropicResize(
-                    target_shape=(encoder_image_height, encoder_image_width)
-                )
- 
-                resized_face = resize_face_crop(image=cropped_face)['image']
+                    # resizing face crop, according to the encoder input requirements
 
-                face_file_name = "{}_{}_{}.png".format(str(video_id), str(frame_idx), str(box_idx))
-                frame_path = os.path.join(output_crop_dir, face_file_name)
+                    resize_face_crop = resize.IsotropicResize(
+                        target_size=encoder_image_size,
+                    )
+    
+                    resized_face = resize_face_crop(image=cropped_face)['image']
+                    
+                    face_file_name = "{}_{}_{}.png".format(str(video_id), str(frame_idx), str(box_idx))
+                    frame_path = os.path.join(output_crop_dir, face_file_name)
+                    
+                    # saving extracted fake and original faces
+                    cv2.imwrite(filename=frame_path, img=resized_face)
 
-                # saving extracted fake and original faces
-                cv2.imwrite(filename=frame_path, img=resized_face)
+                    row = pandas.Series(
+                        data={
+                            'crop_path': frame_path, 
+                            'label': label.item(), 
+                            'video_id': video_id
+                        }
+                    )
+                    output_labels = pandas.concat([output_labels, row])
 
-                row = pandas.Series(
-                    data={
-                        'crop_path': frame_path, 
-                        'label': label, 
-                        'video_id': video_id
-                    }
-                )
-                output_labels = pandas.concat([output_labels, row])
-
-        curr_video += 1
+            curr_video += 1
 
     if len(output_labels) == 0: 
-        raise SystemExit(
-            """none of the videos, we managed to find, 
-            according to presented CSV label config, does exist.""")
+        raise SystemExit("""none of the videos, mentioned in CSV label config does exist.""")
             
     # saving final crop output labels
     output_labels.to_csv(path_or_buf=output_labels_crop_dir)
@@ -240,4 +238,6 @@ def data_pipeline():
 
 if __name__ == '__main__':
     data_pipeline()
+
+
 
