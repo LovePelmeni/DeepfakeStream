@@ -4,6 +4,7 @@ from src.preprocessing import resize
 
 cv2.setNumThreads(0)
 
+
 def get_training_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
     """
     Returns augmentations for training data
@@ -60,7 +61,7 @@ def get_training_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
 def get_validation_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
     """
     Returns augmentations for training data
-    
+
     NOTE:
         expected image need to have .JPEG format.
         Make sure to apply conversion, before
@@ -81,4 +82,3 @@ def get_validation_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
             )
         ]
     )
-
