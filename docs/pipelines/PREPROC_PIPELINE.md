@@ -55,5 +55,5 @@ python3 -u -m src.pipelines.preproc_pipeline \
  --crop-dir $OUTPUT_CROP_DIR \
  --dataset-type "$MODE"
 ```
-##### 4. after pipeline will done executing, you will find your dataset of augmented images under `--crop-dir` directory.
+##### 4. after pipeline done executing, you will find your dataset of augmented images under `--crop-dir` parameter and it's labels under `--json-crops-labels-path` parameter.
 
