@@ -7,7 +7,7 @@ need to know about in order to use data preprocessing pipeline, used in the proj
 
 We want to be able to experiment 
 with different data transformations in an efficient way, 
-that would allow us to iterate quickly
+that would allow us to iterate quickly.
 
 # Technical Guide 
 
@@ -21,34 +21,39 @@ and their corresponding descriptions
 
 #### Image Data Configuration
 
-- `config_dir` - path to .json file, containing configuration of the data. It comprises of following properties: 
+`--json-data-config-path` - path to .json file, containing configuration of the data. It contains following properties:
 
-Json-like file, containing important information about dataset image properties.
+#### Properties
 
--- resize_height - new height to resize images to (used inside augmentations).
+- `mtcnn_image_size` - image size, required by MTCNN face detector. MTCNN requires images to have specific size of `nxn`. The `mtcnn_image_size` parameter is used in augmentations to resize video frames, according to this requirement.
 
--- resize_width - new width to resize images to (used inside augmentations).
+- `encoder_image_size` - size for rescaling cropped face. Example: we extracted face of size (220x180) from the video frame, then it will be rescaled to `encoder_image_size x encoder_image_size` before saving.
 
--- dataset_type - type of the dataset: 'train', 'valid' or 'test'. It is used for picking right augmentations, based on the type of data.
+- `min_face_size` - minimum size of the face to detect
 
--- data_type - data precision to use before saving, common choices are float16 and float32
+- `data_type` - ("fp16", "fp32", "int16", "int32") - data precision to use before saving, common choices are float16 and float32
+
+- `frames_per_vid_ratio` - (float) - percentage of frames to extract from the video. Example: 0.01, 0.5, 0.85, etc...
 
 #### Data directory
 - `data_dir` - path to the directory, containing your data. NOTE: images should have the same properties, as you've specified inside the configuration, i.e the sizes
 
 #### Output directory
-- `output_dir` - this is the path (which may exist or not) where augmented data is going to be stored after pipeline execution.
+- `--crop_dir` - this is the path (which may exist or not) where augmented data is going to be stored after pipeline execution.
 
 # How to run CLI
 
-1. go to the main directory of the project.
-2. export environment variables or set values manually.
-3. run following command in the terminal.
+##### 1. go to the main directory of the project.
+##### 2. export environment variables or set values manually.
+##### 3. run following command in the terminal: 
 
 ```
 python3 -u -m src.pipelines.preproc_pipeline \
- --config-dir $DATA_CONFIG_DIR \
+ --json-data-config-path $JSON_DATA_CONFIG_DIR \
  --data-dir $DATA_DIR \
- --output-dir $AUGMENTED_DATA_DIR
+ --csv-labels-crop-path $CSV_LABELS_CROP_PATH \
+ --crop-dir $OUTPUT_CROP_DIR \
+ --dataset-type "$MODE"
 ```
-4. after pipeline will done executing, you will find your dataset of augmented images under `output_dir` directory.
+##### 4. after pipeline will done executing, you will find your dataset of augmented images under `--crop-dir` directory.
+
