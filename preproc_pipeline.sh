@@ -46,4 +46,4 @@ python3 -u -m src.pipelines.preproc_pipeline \
  --data-dir $DATA_DIR \
  --csv-labels-crop-path $CSV_LABELS_CROP_PATH \
  --crop-dir $OUTPUT_CROP_DIR \
- --dataset-type "$MODE"
+ --dataset-type "$MODE" \

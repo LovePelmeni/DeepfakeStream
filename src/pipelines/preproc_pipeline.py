@@ -146,7 +146,7 @@ def data_pipeline():
     video_loader = data.DataLoader(
         dataset=video_dataset,
         shuffle=False,
-        num_workers=0,
+        num_workers=max(os.cpu_count()-2, 0), # specifying the number of processing for data loading
         batch_size=1,  # one video per iteration
     )
 
