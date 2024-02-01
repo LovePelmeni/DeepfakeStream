@@ -13,11 +13,17 @@ def extract_frame(source_path: str, save_path: str, video_name: str):
     then saves it to the destination path
     """
     video_path = os.path.join(source_path, video_name)
-    if not os.path.exists(video_path): raise FileNotFoundError("Directory does not exist")
+
+    if not os.path.exists(video_path): 
+        print("\n Directory '%s' does not exist \n")
+        return 
+
     buffer = cv2.VideoCapture(video_path)
 
     success, curr_frame = buffer.read()
-    if not success: raise ValueError('failed to read video: %s' % video_name)
+    if not success: 
+        print('\n failed to read video: %s \n' % video_name)
+        return
 
     video_name = os.path.splitext(os.path.basename(video_name))[0]
     save_path = os.path.join(save_path, video_name + ".jpeg")
@@ -49,6 +55,8 @@ def main():
         pathname="**/*.mp3",
         recursive=True
     )
+
+    print('total number of videos found: %s' % len(video_paths))
     
     with multiprocessing.Pool(processes=os.cpu_count()-2) as pool:
         with tqdm(desc='extracting video frames....') as tq:
