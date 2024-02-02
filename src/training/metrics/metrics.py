@@ -1,7 +1,7 @@
 import numpy
 from torch import nn
-import torch
 import typing 
+import torch
 
 """
 File, containing basic evaluation metrics 
