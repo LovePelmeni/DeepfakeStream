@@ -4,7 +4,7 @@ import cv2
 import numpy
 import torch
 import logging
-from src.training.trainers import regularization
+import os
 
 logger = logging.getLogger("dataset_logger")
 
@@ -72,5 +72,29 @@ class DeepfakeDataset(data.Dataset):
                 'failed to parse data, internal error occurred')
 
 
+class MTCNNFineTuneDataset(data.Dataset):
+    """
+    Implementation of the MTCNN dataset
+    used for fine tuning.
+    """
+    def __init__(self, image_paths: typing.List, boxes: typing.List):
+        super(MTCNNFineTuneDataset, self).__init__()
+        self.image_paths = image_paths
+        self.boxes = boxes 
 
+    def __len__(self):
+        return len(self.image_paths)
+        
+    def __getitem__(self, idx: int):
 
+        img_path = self.image_paths[idx]
+        video_name = os.splitext(os.basename(img_path))[0]
+        input_img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+
+        if len(input_img.shape) == 3:
+            input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
+
+        input_img = torch.as_tensor(input_img).permute(2, 0, 1).float()
+        
+        boxes = {video_name: {'boxes': self.boxes[idx]}}
+        return input_img, boxes
