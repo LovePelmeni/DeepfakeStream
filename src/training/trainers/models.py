@@ -12,6 +12,11 @@ import os
 from src.training.trainers.regularization import EarlyStopping, LabelSmoothing
 from src.training.evaluators import sliced_evaluator
 
+from torch.distributed import destroy_process_group, init_process_group 
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data.distributed import DistributedSampler
+import torch.multiprocessing as mp
+
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
 formatter = logging.Formatter(
@@ -316,3 +321,143 @@ class NetworkTrainer(BaseTrainer):
                     torch.ones_like(output_labels)
                 )
                 return metric
+
+class DistributedTrainer(BaseTrainer):
+    """
+    Trainer, that leverages concept 
+    of distributed training for training 
+    network more faster. However, requires 
+    availability of multiple GPUs for faster training.
+    """
+    def __init__(self,
+        network: nn.Module,
+        loss_function: nn.Module,
+        eval_metric: nn.Module,
+        max_epochs: int,
+        batch_size: int,
+        optimizer: nn.Module,
+        lr_scheduler: nn.Module,
+        save_every: int,
+        process_rank: str,
+        process_world_size: str,
+        master_addr: str,
+        master_port: int,
+        device_ids: typing.List,
+        snapshot_path: str
+    ):
+        self.loss_function = loss_function
+        self.eval_metric = eval_metric 
+        self.max_epochs: int = max_epochs 
+        self._process_rank = process_rank 
+        self._process_world_size = process_world_size 
+        self._master_addr: str = master_addr
+        self._master_port: str = str(master_port)
+        self.save_every = save_every
+        self.optimizer = optimizer 
+        self.batch_size = batch_size 
+        self.lr_scheduler: nn.Module = lr_scheduler 
+        self.optimizer: nn.Module = optimizer
+        self.network: nn.Module = self.get_ddp_network(network, device_ids=device_ids)
+
+        if snapshot_path is not None:
+            self.load_checkpoint(snapshot_path)
+
+    def get_ddp_network(self, network: nn.Module, device_ids: typing.List):
+        return DistributedDataParallel(
+            module=network, 
+            device_ids=device_ids
+        )
+
+    def set_ddp(self, 
+        master_addr: str, 
+        master_port: int, 
+        rank: str, 
+        world_size: int
+    ):
+        os.environ['MASTER_ADDR'] = master_addr
+        os.environ['MASTER_PORT'] = master_port
+        init_process_group(backend='nccl', rank=rank, world_size=world_size)
+
+    def destroy_ddp(self):
+        destroy_process_group()
+
+    def load_snapshot(self, snapshot_path: str) -> None:
+
+        file_format = os.splitext(os.basename(snapshot_path))[1]
+
+        if file_format in ("pt", "pth"):
+            config = torch.load(snapshot_path)
+
+            self.model = self.model.load_state_dict(config['model_state'])
+            self.max_epochs = config.get("max_epochs", None)
+            self.batch_size = config.get("batch_size", None)
+            self.optimizer = self.optimizer.load_state_dict(config['optimizer_state'])
+            self.lr_scheduler = self.lr_scheduler.load_state_dict(config['lr_scheduler_state'])
+        else:
+            raise NotImplementedError("Unsupported snapshot file type")
+           
+    def save_snapshot(self, epoch: int, loss: float) -> None:
+
+        model_path = os.path.join(
+            self.checkpoint_path, 
+            "model_epoch_%s.pth" % epoch
+        )
+
+        snapshot_config = {
+            'model_state': self.network.module.state_dict(),
+            'optimizer_state': self.optimizer.state_dict(),
+            'max_epochs': self.max_epochs,
+            'lr_scheduler': self.lr_scheduler,
+            'batch_size': self.batch_size,
+            'loss_function': self.loss_function,
+            'eval_metric': self.eval_metric,
+            'loss': loss
+        }
+
+        torch.save(
+            obj=snapshot_config, 
+            f=model_path
+        )
+
+    def prepare_loader(self, dataset: data.Dataset):
+        return data.DataLoader(
+            dataset=dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            sampler=DistributedSampler(dataset=dataset)
+        )
+
+    def train(self, dataset: data.Dataset):
+
+        self.set_ddp(
+            master_addr=self._master_addr, 
+            master_port=self._master_port,
+            rank=self._process_rank,
+            world_size=self._process_world_size
+        )
+
+        loader = self.prepare_loader(dataset)
+        train_loss = float('inf')
+        
+        for epoch in range(self.max_epochs):
+            epoch_loss = 0
+
+            for images, boxes in loader:
+
+                predictions = self.network.forward(images)
+                loss = self.loss_function(predictions['boxes'], boxes)
+
+                loss.backward()
+                self.optimizer.step()
+            
+                epoch_loss += loss.item()
+
+            if epoch % self.save_every:
+                self.save_snapshot(epoch=epoch, loss=epoch_loss)
+                
+            train_loss = min(train_loss, epoch_loss)
+            
+        self.destroy_ddp()
+        return train_loss
+
