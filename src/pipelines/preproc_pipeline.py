@@ -88,7 +88,13 @@ def data_pipeline():
     img_config = utils.load_config(config_path=config_dir)
 
     dataset_type = args.dataset_type
+
+    # device to use during inference of the network (default is "CPU")
+    inference_device = img_config.get("inference_device", "cpu")
+
+    # minimum possible size of the human face to detect on the images
     min_face_size = img_config.get("min_face_size", 160)
+
     # percentage of videos to extract from each video
     frames_per_vid_ratio = img_config.get("frames_per_vid_ratio")
 
@@ -153,9 +159,9 @@ def data_pipeline():
     face_detector = MTCNNFaceDetector(
         image_size=mtcnn_input_size,
         use_landmarks=True,
-        keep_all_pred_faces=False,
-        min_face_size=min_face_size,
-        inf_device="cpu",
+        keep_all_pred_faces=False, # do not keep all candidates of human faces, perform NMS filtering instead
+        min_face_size=min_face_size, # minimum size of human face
+        inf_device=inference_device, # device to use during inference
     )
 
     # processing label information
