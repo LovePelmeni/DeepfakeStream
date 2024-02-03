@@ -60,49 +60,66 @@ def training_pipeline():
     parser = argparse.ArgumentParser(description="CLI-based Training Pipeline")
     arg = parser.add_argument
 
-    # data and output settings
+    optional = parser.add_argument_group("Optional Arguments")
+    optional.add_argument(
+        "-h", "--help", 
+        action='help', 
+        help='helper method for printing information about available commands'
+    )
 
-    arg("--train-data-path", type=str, required=True,
+    # data and output settings
+    required_settings = parser.add_argument_group("Required training settings")
+
+    required_settings.add_argument("--train-data-path", type=str, required=True,
         dest='train_data_path', help='path to the training data')
-    arg("--train-labels-path", type=str, required=True,
+    required_settings.add_argument("--train-labels-path", type=str, required=True,
         dest='train_labels', help='.csv file labels for training data.')
-    arg("--val-data-path", type=str, required=True,
+    required_settings.add_argument("--val-data-path", type=str, required=True,
         dest='val_data_path', help='path to the validation data')
-    arg("--val-labels-path", type=str, required=True,
+    required_settings.add_argument("--val-labels-path", type=str, required=True,
         dest='val_labels', help='.csv file labels for validation data')
-    arg("--output-path", type=str, default='weights/',
+    required_settings.add_argument("--output-path", type=str, default='weights/',
         dest='output_dir', help='path for storing network weights')
-    arg("--checkpoint-path", type=str, default='checkpoints/',
+    required_settings.add_argument("--checkpoint-path", type=str, default='checkpoints/',
         dest='checkpoint_dir', help='path for storing training checkpoints')
-    arg('--config-path', type=str, dest='config_dir',
+    required_settings.add_argument('--config-path', type=str, dest='config_dir',
         help='path to .json train configuration file, containing information for training pipeline.')
-    arg("--log-path", type=str, default='logs/',
+    required_settings.add_argument("--log-path", type=str, default='logs/',
         dest='log_dir', help='directory for storing logs')
 
     # hardware settings
-    arg("--use-cuda", type=bool, dest='use_cuda',
-        help='use CUDA backend for model training', action='store_true')
-    arg("--use-cpu", type=bool, action='store_false', dest='use_cpu',
-        help='use CPU backend for model training')
-    arg("--use-mps", type=bool, action='store_true', dest="use_mps",
-        help="Use MAC mps backend for training")
+    train_device_settings = parser.add_mutually_exclusive_group("Hardware device selection: ")
+
+    train_device_settings.add_argument("--use-cuda", type=bool, dest='use_cuda',
+        help='use CUDA backend for model training', action='store_true', required=True)
+
+    train_device_settings.add_argument("--use-mps", type=bool, action='store_true', dest="use_mps",
+        help="use MAC mps backend for training", required=True)
+
+    train_device_settings.add_argument("--use-cpu", type=bool, action='store_true', dest='use_cpu',
+        help='use CPU backend for training')
 
     # additional hardware related settings
-    arg("--num-workers", type=int, default=3, dest='num_workers',
+    optional_hard_settings = parser.add_argument_group("Optional hardware training settings")
+
+    optional_hard_settings.add_argument("--cpu-num-workers", type=int, default=3, dest='num_workers',
         help='number of CPU threads for loading dataset during training')
-    arg("--gpu-id", type=str, default='', required=False,
+
+    optional_hard_settings.add_argument("--gpu-ids", type=str, default='', required=False,
         help='ID of GPU to use for training')
-    arg("--use-cudnn-bench", type=bool, dest='cudnn_bench', default=False,
+
+    optional_hard_settings.add_argument("--use-cudnn-bench", type=bool, dest='cudnn_bench', default=False,
         help='In case your data has the same shape, turning this option to "True" can dramatically speed up on training')
 
     # reproducability settings
+    reprod_settings = parser.add_argument_group("Reproducibility settings")
 
-    arg("--seed", type=int, default=42,
+    reprod_settings.add_argument("--seed", type=int, default=42,
         help='seed for fixating generation of random entities during training')
 
     # experiment settings (for experiment tracking)
 
-    arg("--log-execution", default=True,
+    reprod_settings.add_argument("--log-execution", default=True,
         help='Option for use / disabling logging during pipeline execution.')
 
     # parsing arguments
