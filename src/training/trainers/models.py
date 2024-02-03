@@ -5,11 +5,12 @@ import logging
 from torch.utils import data
 import numpy.random
 import random
-from src.training.trainers.regularization import EarlyStopping, LabelSmoothing
 from tqdm import tqdm
 import gc
-from src.training.evaluators import sliced_evaluator
 import os
+
+from src.training.trainers.regularization import EarlyStopping, LabelSmoothing
+from src.training.evaluators import sliced_evaluator
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
@@ -21,7 +22,54 @@ trainer_logger.setLevel(logging.WARN)
 trainer_logger.addHandler(handler)
 
 
-class NetworkTrainer(object):
+from abc import ABC, abstractmethod
+import os
+class BaseTrainer(ABC):
+
+    @abstractmethod
+    def load_snapshot(self, snapshot_path: str) -> None:
+        """
+        Loads state of the model from snapshot path
+        Parameters:
+        -----------
+            snapshot_path (str) - path to the snapshot
+        """
+
+    @abstractmethod
+    def save_snapshot(self, **kwargs) -> None:
+        """
+        Saves checkpoint (snapshot) of the model
+        under specific file path and format.
+
+        Possible formats:
+            - "pth", "pt", "onnx"
+
+        Example arguments:
+            path = "path/to/save/snapshot/"
+            format = ".onnx"
+            output_path = os.path.join(path, "model" + format)
+            model.save(output_path)
+        """
+    
+    @abstractmethod
+    def prepare_loader(self, dataset: data.Dataset) -> data.DataLoader:
+        """
+        Prepares loader for training model
+        """
+
+    @abstractmethod
+    def train(self, dataset: data.Dataset) -> float:
+        """
+        Trains classifier with 'dataset'
+        Parameters:
+        -----------
+            dataset - (data.Dataset) - training dataset
+        Returns:
+            - train loss over epochs (float number)
+        """
+
+
+class NetworkTrainer(BaseTrainer):
     """
     Pipeline class, used for training 
     and evaluating neural networks
@@ -97,7 +145,7 @@ class NetworkTrainer(object):
         numpy.random.seed(worker_seed)
         random.seed(worker_seed)
 
-    def save_checkpoint(self,
+    def save_snapshot(self,
                         loss: float,
                         epoch: int
                         ):
@@ -106,11 +154,10 @@ class NetworkTrainer(object):
             "checkpoint_epoch_%s.pth" % str(epoch)
         )
 
-        torch.save(
-            {
-                'anetwork': self.network.cpu().state_dict(),
-                'optimizer': self.optimizer.state_dict(),
-                'lr_scheduler': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
+        snapshot = {
+                'network_state': self.network.cpu().state_dict(),
+                'optimizer_state': self.optimizer.state_dict(),
+                'lr_scheduler_state': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
                 'batch_size': self.batch_size,
                 'loss': loss,
                 'epoch': epoch,
@@ -126,7 +173,30 @@ class NetworkTrainer(object):
                     for device in range(torch.cuda.device_count())
                 ]
 
-            }, f=checkpoint_path
+        }
+        if self.lr_scheduler is not None:
+            snapshot['lr_scheduler_state'] = self.lr_scheduler.state_dict()
+
+        torch.save(snapshot, f=checkpoint_path)
+
+    def load_snapshot(self, snapshot_path: str) -> None:
+        """
+        """
+        if os.path.exists(snapshot_path):
+            file_format = os.splitext(os.basename(snapshot_path))[1]
+
+            if file_format.lower() in ("pt", "pth"):
+                config = torch.load(snapshot_path)
+
+                self.network = self.network.load_state_dict(config['model_state'])
+                self.network = self.network.to(config['train_device'])
+
+    def prepare_loader(self, dataset: data.Dataset):
+        return data.DataLoader(
+            dataset=dataset,
+            shuffle=True,
+            batch_size=self.batch_size,
+            num_workers=self.loader_num_workers
         )
 
     def train(self, train_dataset: data.Dataset):
