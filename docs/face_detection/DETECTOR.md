@@ -40,3 +40,10 @@ You should clearly understand how many faces you can potentially encounter on a 
 
 Model does not inherently full GPU parallelization. Each face, detected on the image is going to get through the same process of (Input, Refining, Output) which cannot be executed in parallel. Therefore, if you have 100 faces on the image, each of them will pass through the network's internals synchronously without opportunity of being processed in parallel, which contributes to overall increase in time.
 
+
+# Analogical ways for face detection
+
+As an alternative for deep-learning face detectors, which are indeed tend to not only consume significant portion of computational power but overfit or drift over time, there are a couple of methods, which can serve similar results but require less additional resources:
+
+1. Haar Cascades.
+2. HOG + SVM.
