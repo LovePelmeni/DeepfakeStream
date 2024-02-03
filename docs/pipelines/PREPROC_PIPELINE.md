@@ -57,3 +57,30 @@ python3 -u -m src.pipelines.preproc_pipeline \
 ```
 ##### 4. after pipeline done executing, you will find your dataset of augmented images under `--crop-dir` parameter and it's labels under `--json-crops-labels-path` parameter.
 
+# Execution steps
+
+The overall execution plan of the pipeline can be broken up into following steps:
+
+### 1. Data Loading and Folder initialization
+This step typically involves data loading, parsing configuration files 
+and initializing different folders for storing data.
+
+### 2. Augmentation selection
+Depending on the specified type of the data (i.e used for training or validation)
+we can pick the augmentation strategy, dedicated specifically for that
+
+### 3. Video loading
+At this stage, we use torch.utils.data.DataLoader, which allows us to leverage 
+multiple CPU workers (i.e threads) and increase the speed of loading data into the host memory.
+
+### 4. Video processing
+For each video, presented in the dataset, we perform following operations:
+
+    extracting (N * total number of frames) frames (parameter N     is ratio and can be controlled in 'experiments/experiment1/exp1_config.json' example)
+    
+    - 2. running frames through the fine-tuned MTCNN face detector to extract human faces (size of human faces to detect can be controlled via 'mtcnn_image_size' parameter at 'experiments/experiment1/exp1_config.json' example).
+
+    - 3. human faces crops are adjusted in size, according to the input size to the noise classifier (see 'encoder_input_image_size' parameter at 'experiments/experiment1/exp1_config.json' example)
+
+### 5. Saving cropped and adjusted human faces and it's labels
+We save crops under the folder `--crop-dir` and it's labels under the path `--csv-labels-crop-path`.
