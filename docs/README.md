@@ -2,6 +2,10 @@
 
 Design documentation for the machine learning-powered service responsible for detecting deepfake manipulations in videos, specifically focusing on human faces. As the prevalence of deepfake technology continues to rise, the need for robust and scalable solutions to identify manipulated content has become crucial. Our goal is to develop a state-of-the-art service that leverages advanced machine learning algorithms to detect and mitigate the impact of maliciously created deepfake videos.
 
+<p align="center">
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/srm/srm_features.png" style="width: 570%; height: 70%"></a>
+</p>
+
 # Documentation
 
 I've listed up list some of the design documents, which you can read and analyze for deeper understanding of problem context, project API and system design, model and data nuances, other technical details, relevant to system's lifecycle.
