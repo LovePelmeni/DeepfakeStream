@@ -15,6 +15,7 @@ of design documents under `docs/deepfake_detection` folder.
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/architecture/pipeline_architecture.png" style="width: 70%; height: 70%">Architecture of the pipeline.</a>
 </par
 
+---
 # Documentation
 
 I've listed up list some of the design documents, which you can read and analyze for deeper understanding of problem context, project API and system design, model and data nuances, other technical details, relevant to system's lifecycle.
@@ -31,4 +32,11 @@ I've listed up list some of the design documents, which you can read and analyze
 - **FACE_DETECTION.md** - overview of the method, used for detecting human faces on images.
 
 
+# Reference links of papers, used during development
 
+- https://www.cs.columbia.edu/~jrk/NSFgrants/videoaffinity/Interim/22x_Rohit.pdf
+- https://iopscience.iop.org/article/10.1088/1757-899X/533/1/012054/pdf
+- https://arxiv.org/abs/1604.02878
+- https://hal.science/hal-04206611/document
+- https://arxiv.org/abs/2302.12445
+- https://arxiv.org/abs/1909.02061
