@@ -40,3 +40,4 @@ I've listed up list some of the design documents, which you can read and analyze
 - https://hal.science/hal-04206611/document
 - https://arxiv.org/abs/2302.12445
 - https://arxiv.org/abs/1909.02061
+- https://assets.researchsquare.com/files/rs-1844392/v1_covered.pdf?c=1659727359
