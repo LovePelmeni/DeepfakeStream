@@ -3,7 +3,7 @@
 Design documentation for the machine learning-powered service responsible for detecting deepfake manipulations in videos, specifically focusing on human faces. As the prevalence of deepfake technology continues to rise, the need for robust and scalable solutions to identify manipulated content has become crucial. Our goal is to develop a state-of-the-art service that leverages advanced machine learning algorithms to detect and mitigate the impact of maliciously created deepfake videos.
 
 <p align="center">
-  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/srm/srm_features.png" style="width: 70%; height: 70%">SRM based approach for deepfake detection</a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/srm/srm_features.png" style="width: 100%; height: 100%"></a>
 </p>
 
 ## Deepfake detection pipeline
@@ -12,7 +12,7 @@ For extended pipeline details, checkout series
 of design documents under `docs/deepfake_detection` folder.
 
 <p align="center">
-  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/architecture/pipeline_architecture.png" style="width: 70%; height: 70%">Architecture of the pipeline.</a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/architecture/pipeline_architecture.png" style="width: 100%; height: 100%"></a>
 </par
 
 ---
