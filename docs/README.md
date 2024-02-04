@@ -15,6 +15,8 @@ of design documents under `docs/deepfake_detection` folder.
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/architecture/pipeline_architecture.png" style="width: 100%; height: 100%"></a>
 </par
 
+---
+
 # Documentation
 
 I've listed up list some of the design documents, which you can read and analyze for deeper understanding of problem context, project API and system design, model and data nuances, other technical details, relevant to system's lifecycle.
