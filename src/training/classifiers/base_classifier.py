@@ -7,10 +7,8 @@ ENCODER_CONFIGURATION = {
         
     }
 }
-
 class BaseClassifier(ABC):
     pass
-
 class DeepfakeClassifier(nn.Module, BaseClassifier):
     """
     Deepfake classifier prototype
@@ -55,3 +53,32 @@ class DeepfakeClassifier(nn.Module, BaseClassifier):
         output = self.dense3(output)
         output_prob = self.sigmoid(output)
         return output_prob
+
+
+class GlobalWeightedAveragePooling(nn.Module):
+    """
+    Global weighted average pooling, which examinates
+    better pixel-wise localization. 
+    Paper: "Global Weighted Average Pooling Bridges
+    Pixel-level Localization and Image-level
+    Classification by Suo Qiu"
+    """
+    def __init__(self, input_size: int, in_channels: int):
+        super(GlobalWeightedAveragePooling, self).__init__()
+        self.weights = nn.Parameter(torch.nn.init.xavier_uniform_(
+            torch.empty(size=(in_channels, input_size, input_size))
+        ))
+    
+    def forward(self, input_map: torch.Tensor):
+        weighted_maps = input_map * self.weights.unsqueeze(0)
+        return torch.mean(weighted_maps, dim=(2, 3))
+        
+class DeepfakeClassifierGWAP(DeepfakeClassifier):
+    """
+    Implementation of the Deepfake classifier
+    with usage of Global Weighted Average Pooling layer,
+    instead of standard avg pool.
+    """
+    def __init__(self, **kwargs):
+        super(DeepfakeClassifierGWAP, self).__init__(**kwargs)
+        self.avgpool1 = GlobalWeightedAveragePooling()
