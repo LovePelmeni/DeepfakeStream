@@ -32,7 +32,7 @@ I've listed up list some of the design documents, which you can read and analyze
 - **FACE_DETECTION.md** - overview of the method, used for detecting human faces on images.
 
 
-## Reference links of papers, used during development
+## References
 
 - https://www.cs.columbia.edu/~jrk/NSFgrants/videoaffinity/Interim/22x_Rohit.pdf
 - https://iopscience.iop.org/article/10.1088/1757-899X/533/1/012054/pdf
