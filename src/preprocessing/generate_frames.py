@@ -6,8 +6,50 @@ import pathlib
 from glob import glob
 import functools 
 from tqdm import tqdm
+import typing
+import collections
+import json
+import numpy
 
-def extract_frame(source_path: str, save_path: str, video_name: str):
+def get_video_labels(root_dir: str, file_ext: str):
+    """
+    Returns corresponding labels for all mp4 or mp3 video files,
+    presented under 'root_dir'.
+
+    NOTE:
+        you have to create config file with extension of 'file_ext'
+        where labels are already specified.
+        This function is only responsible for extracting them 
+        and presenting for further usage. Not figuring out labels
+        for images on it's own.
+    RETURNS:
+        dictionary, containing labels for videos
+    """
+    output_labels =  collections.defaultdict(str)
+    for metadata_url in glob(pathname=f"**/*.{file_ext}", root_dir=root_dir):
+
+        try:
+            config = json.load(metadata_url)
+        except(Exception):
+            print('failed to parse .json config')
+            continue
+        
+        for video_name, info in config.items():
+
+            if 'original' in info:
+                output_labels[video_name] = "FAKE"
+            else:
+                output_labels[video_name] = "ORIG"
+
+    return output_labels
+
+
+def extract_frame(
+    source_path: str, 
+    save_path: str, 
+    video_name: str, 
+    video_label: typing.Literal['ORIG', 'FAKE']
+):
     """
     Extracts first from the video (mp4, mp3) file,
     then saves it to the destination path
@@ -26,7 +68,7 @@ def extract_frame(source_path: str, save_path: str, video_name: str):
         return
 
     video_name = os.path.splitext(os.path.basename(video_name))[0]
-    save_path = os.path.join(save_path, video_name + ".jpeg")
+    save_path = os.path.join(save_path, video_name + "_%s.jpeg" % video_label)
     
     # saving frame, in case we haven't extracted any frames from this video before
     if not os.path.exists(save_path):
@@ -46,7 +88,8 @@ def main():
     os.makedirs(output_img_dir, exist_ok=True)
     
     # collecting video paths for the source directory
-    video_paths = glob(
+    video_paths = numpy.asarray(
+    glob(
         root_dir=video_data_dir,
         pathname="**/*.mp4",
         recursive=True
@@ -54,9 +97,22 @@ def main():
         root_dir=video_data_dir,
         pathname="**/*.mp3",
         recursive=True
-    )
+    )).astype(numpy.object_)
+
+    video_labels = get_video_labels(root_dir=video_data_dir)
+    video_information = collections.defaultdict(dict)
+
+    # merging labels and their respective paths
+
+    for video in range(len(video_paths)):
+        name = os.path.splitext(os.path.basename(video_paths[video].str))[0]
+
+        if video_labels.get(name, None) != None:
+            video_information[name]['label'] = video_labels[name]
+            video_information[name]['path'] = video_paths[video].str
 
     print('total number of videos found: %s' % len(video_paths))
+    print('total number of video labels found: %s' % len(video_labels))
     
     with multiprocessing.Pool(processes=os.cpu_count()-2) as pool:
         with tqdm(desc='extracting video frames....') as tq:
