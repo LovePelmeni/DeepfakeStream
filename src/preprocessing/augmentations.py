@@ -5,7 +5,7 @@ from src.preprocessing import resize
 cv2.setNumThreads(0)
 
 
-def get_training_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
+def get_train_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
     """
     Returns augmentations for training data
 
@@ -16,6 +16,29 @@ def get_training_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
 
     return albumentations.Compose(
         transforms=[
+            albumentations.ImageCompression(
+                quality_lower=60,
+                quality_upper=100,
+                compression_type=0
+            ),
+            albumentations.GaussNoise(p=0.1) ,
+            albumentations.GaussianBlur(p=0.05) ,
+            albumentations.RandomGamma(p=0.5),
+            albumentations.HorizontalFlip(p=0.5),
+            
+            albumentations.OneOf(
+                transforms=[
+                    albumentations.RandomBrightnessContrast(),
+                    albumentations.FancyPCA(),
+                    albumentations.HueSaturationValue(),
+                ], p=0.7
+            ),
+            albumentations.ShiftScaleRotate(
+                shift_limit=1,
+                scale_limit=0.5,
+                rotate_limit=10,
+                border_mode=cv2.BORDER_CONSTANT
+            ),
             albumentations.OneOf(
                 transforms=[
                     resize.IsotropicResize(
@@ -35,25 +58,6 @@ def get_training_augmentations(IMAGE_SIZE: int) -> albumentations.Compose:
                     ),
                 ]
             ),
-            albumentations.ImageCompression(
-                quality_lower=60,
-                quality_upper=100,
-                compression_type=0
-            ),
-            albumentations.HorizontalFlip(p=0.5),
-            albumentations.OneOf(
-                transforms=[
-                    albumentations.RandomBrightnessContrast(),
-                    albumentations.FancyPCA(),
-                    albumentations.HueSaturationValue(p=0.5),
-                ]
-            ),
-            albumentations.ShiftScaleRotate(
-                shift_limit=1,
-                scale_limit=0.5,
-                rotate_limit=10,
-                border_mode=cv2.BORDER_CONSTANT
-            )
         ]
     )
 
