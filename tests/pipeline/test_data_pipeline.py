@@ -1,14 +1,24 @@
+from src.pipelines.preproc_pipeline import data_pipeline
 import unittest 
 import os
-from src.pipelines.preproc_pipeline import data_pipeline
+import pathlib
 
 class DataPipelineTestCase(unittest.TestCase):
 
     def setUp(self):
-        os.environ.setdefault("DATA_DIR", "experiments/experiment1/data/train_data")
-        os.environ.setdefault("DATA_CONFIG_DIR", "data_configs/exp1_data_config.json")
-        os.environ.setdefault("AUGMENTED_DATA_DIR", "experiments/experiment1/data/augmented/train_data")
+        self.crop_dir = pathlib.Path("")
+        self.config_dir = pathlib.Path("")
+        self.video_data_dir = pathlib.Path("")
+        os.environ.setdefault("DATA_DIR", self.video_data_dir)
+        os.environ.setdefault("DATA_CONFIG_DIR", self.config_dir)
+        os.environ.setdefault("AUGMENTED_DATA_DIR", self.video_data_dir)
 
     def test_data_pipeline(self):
         data_pipeline()
-        self.assertTrue(os.path.exists(path="experiments/experiment1/data/augmented/train_data"))
+        self.assertTrue(
+            os.path.exists(
+                path="experiments/experiment1/data/augmented/train_data"
+            )
+        )
+
+

@@ -139,3 +139,5 @@ class CIOULoss(nn.Module):
 
         ciou_loss = iou - (center_distance ** 2) / (2 * union_area) - alpha * v
         return torch.mean(ciou_loss)
+
+
