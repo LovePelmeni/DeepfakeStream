@@ -7,6 +7,7 @@ import gc
 import subprocess
 import logging 
 import sys
+import time
 
 Logger = logging.getLogger("measure_logger")
 handler = logging.StreamHandler(stream=sys.stdout)
@@ -82,33 +83,43 @@ def measure_classifier_inference_time(
     total_repetitions - (int) - total number of measure repetitions to make
     warmup_iters: (int) - number of iterations to warmup GPU
     
+    NOTE:
+        does not support MPS backend.
+        does not support multi-gpu inference.
+        Only single CUDA GPUs or standard CPUs.
+
     Returns:
         - average time across all repetitions in milliseconds.
     """
 
     # fixating GPU clock speed
 
-    if gpu_clock_speed is not None:
-        set_gpu_clock_speed(device=train_device, gpu_clock_speed=gpu_clock_speed)
+    if not isinstance(train_device, str):
+        raise ValueError(
+        "'train_device' should have string type, not %s" % type(train_device))
+
+    if train_device.startswith("cuda"):
+        if gpu_clock_speed is not None:
+            set_gpu_clock_speed(device=train_device, gpu_clock_speed=gpu_clock_speed)
 
     # generating inference data
 
-    gpu_data = torch.stack([
+    data = torch.stack([
         torch.randn(size=img_shape).to(torch.float32).permute(2, 0, 1) 
         for _ in range(batch_size)
     ])
     
     # connecting neural network
-    gpu_network = network.to(train_device)
+    network = network.to(train_device)
      
     # running warmup repetitions
     for _ in range(warmup_iters):
-        _ = gpu_network.forward(gpu_data.to(train_device))
+        _ = network.forward(data.to(train_device))
         
     # running repetitions
-    
-    starter = torch.cuda.Event(enable_timing=True)
-    ender = torch.cuda.Event(enable_timing=True)
+    if train_device.startswith("cuda"):
+        starter = torch.cuda.Event(enable_timing=True)
+        ender = torch.cuda.Event(enable_timing=True)
     
     times = []
     
@@ -116,60 +127,86 @@ def measure_classifier_inference_time(
         for _ in range(total_repetitions):
 
             flush_cache()
-            starter.record()
+            if train_device.startswith("cuda"):
+                starter.record()
+                _ = network.forward(data.to(train_device))
+                ender.record()
 
-            predictions = gpu_network.forward(gpu_data.to(train_device))
-            ender.record()
+                torch.cuda.synchronize()
+                total_time = starter.elapsed_time(ender) / batch_size
 
-            torch.cuda.synchronize()
-            time = starter.elapsed_time(ender)
+            elif train_device.startswith("cpu"):
+                start_time = time.time()
+                _ = network.forward(data.to(train_device))
+                end_time = time.time()
+                total_time = (end_time - start_time) / batch_size
 
-            times.append(time / 100) # converting to seconds by dividing by 100
-
+            times.append(total_time / 100) # converting to seconds by dividing by 100
+    
     # resetting gpu clock speed back to default
 
-    if gpu_clock_speed is not None:
-        reset_gpu_clock_speed(device=train_device)
+    if train_device.startswith("cuda"):
+        if gpu_clock_speed is not None:
+            reset_gpu_clock_speed(device=train_device)
 
     return numpy.mean(times)
+
 
 def measure_face_detector_inference_time(
     detector: facenet_pytorch.MTCNN,
     input_images: list,
     total_repetitions: int,
     warmup_iters: int,
-    inf_device: str
+    device: str
 ):
     """
     Measures the approximate
     inference time of the face detector
     on a given set of input images
     
+    NOTE:
+        does not support MPS backend.
+        does not support multi-gpu inference.
+        only supports CUDA GPUs or standard CPUs.
+
     Parameters:
     -----------
     detector: MTCNN face detector
     input_images - list of numpy images
     total_repetitions - total number of times to repeat measure iteration
     warmup_iters - number of iterations for gpu warmup
-    inf_device - device, used for inference test (usually the one used in production env)
+    device - device, used for inference test (usually the one used in production env)
     """
-    detector.device = torch.device(inf_device)
-    gpu_data = [torch.from_numpy(img).permute(2, 0, 1) for img in input_images]
-
+    detector.device = torch.device(device)
+    data = [torch.from_numpy(img) for img in input_images]
+    
     for _ in range(warmup_iters):
-        _, _ = detector.detect-(gpu_data[0].unsqueeze(0).to(inf_device))
+        _, _ = detector.detect(data[0].unsqueeze(0).to(device))
 
-    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    if device.startswith("cuda"):
+        starter = torch.cuda.Event(enable_timing=True)
+        ender = torch.cuda.Event(enable_timing=True)
+        
     avg_times = []
 
-    gpu_data = torch.stack(gpu_data).to(inf_device)
-
+    data = torch.stack(data).to(device)
+    
     for _ in range(total_repetitions):
-        starter.record()
-        _, _ = detector.detect(gpu_data)
-        ender.record()
-        torch.cuda.synchronize()
-        total_time = ender.elapsed_time(starter) / len(input_images)
+            
+        flush_cache()
+            
+        if device.startswith("cuda"):
+            starter.record()
+            _, _ = detector.detect(data, landmarks=False)
+            ender.record()
+            torch.cuda.synchronize()
+            total_time = ender.elapsed_time(starter) / len(input_images)
+                
+        elif device.lower() == "cpu":
+            start_time = time.time()
+            _, _ = detector.detect(data, landmarks=False)
+            end_time = time.time()
+            total_time = (end_time - start_time) / len(input_images)
+                
         avg_times.append(total_time)
     return numpy.mean(avg_times)
-        
