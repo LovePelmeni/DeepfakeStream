@@ -41,3 +41,4 @@ I've listed up list some of the design documents, which you can read and analyze
 - https://arxiv.org/abs/2302.12445
 - https://arxiv.org/abs/1909.02061
 - https://assets.researchsquare.com/files/rs-1844392/v1_covered.pdf?c=1659727359
+- https://arxiv.org/pdf/1809.08264.pdf
