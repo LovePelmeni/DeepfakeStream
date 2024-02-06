@@ -51,8 +51,7 @@ You should clearly understand how many faces you can potentially encounter on a 
 
 ### 2. Unholistic GPU parallelization support.
 
-Model does not inherently full GPU parallelization. Each face, detected on the image is going to get through the same process of (Input, Refining, Output) which cannot be executed in parallel. Therefore, if you have 100 faces on the image, each of them will pass through the network's internals synchronously without opportunity of being processed in parallel, which contributes to overall increase in time.
-
+Model does not inherently support full GPU parallelization. Each face, detected on the image is going to pass through the same process of (Input, Refining, Output), which cannot be executed in parallel. Therefore, it slightly increases inference time.
 
 # Analogical ways for face detection
 
