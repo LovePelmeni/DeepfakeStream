@@ -17,8 +17,8 @@ overhead.
 We assume having a N number of video frames of quadratic size (NxN) with presence
 of at least one human face of minimum size (MxM), where M should be set manually as 
 it regulates the tradeoff between precision and computational costs. This is because
-having smaller minimum face size introduces more potential examples for the network
-to consider, therefore the overall computational time increase.
+having smaller minimum face size introduces more candidates for the network
+to filter out from during training / inference phase, therefore, computational time increase.
 
 # ROI Extraction and Image preprocessing 
 
