@@ -33,7 +33,7 @@ faces from the image, align them, then apply additional augmentations to make da
 # Solution
 ## Face detection network
 
-We proposed usage of Multi-task Cascaded Convolutional Neural Network, also called "MTCNN", which is quite simple yet efficient model, that can be leveraged as a face detector. It combines all the above refining preprocessings, which make it the best fit in our case.
+We proposed usage of Multi-task Cascaded Convolutional Neural Network, also called "MTCNN", which is quite simple yet efficient model, that can be leveraged as a face detector. It combines all the above refining preprocessings, which makes it the best fit for our case.
 
 <p align="center">
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/mtcnn/mtcnn_arch.jpeg" style="width: 50%; height: 50%"></a>
