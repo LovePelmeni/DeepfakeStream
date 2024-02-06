@@ -12,15 +12,27 @@ is one the most efficient ways how to handle issue, without causing any addition
 overhead.
 
 # Scope
+
 We assume having a N number of video frames of quadratic size (NxN) with presence
 of at least one human face of minimum size (MxM), where M should be set manually as 
 it regulates the tradeoff between precision and computational costs. This is because
 having smaller minimum face size introduces more potential examples for the network
 to consider, therefore the overall computational time increase.
 
-# Face detection network
+# ROI Extraction and Image preprocessing 
 
-We proposed usage of Multi-task Cascaded Convolutional Neural Network, also called "MTCNN", which is quite simple yet efficient model, that can be leveraged as a face detector.
+Passing the entire image to the network may introduce unnecessary 
+features and computations, to the model, we want to crop and refine 
+faces from the image. Example of face preprocessing pipeline used is down below.
+
+<p align="center">
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/detection/roi_extraction.png" style="width: 80%; height: 80%"></a>
+</p>
+
+# Solution
+## Face detection network
+
+We proposed usage of Multi-task Cascaded Convolutional Neural Network, also called "MTCNN", which is quite simple yet efficient model, that can be leveraged as a face detector. It combines all the above refining preprocessings, which make it the best fit in our case.
 
 <p align="center">
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/mtcnn/mtcnn_arch.jpeg" style="width: 50%; height: 50%"></a>
