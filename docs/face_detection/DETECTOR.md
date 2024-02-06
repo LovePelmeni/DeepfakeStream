@@ -4,11 +4,12 @@ Overview of face detection approach,
 used in the DeepfakeStream project.
 
 # Assumptions 
-Project's goal is to finding deepfakes on human faces, 
-processing raw video frames without specifying exact location of the faces
-can generally lead to high computational costs and bad performance of the classifier.
-Spotting faces on the big frame pictures and cropping them for further processing
-is one the most efficient ways how to handle issue, without causing any additional 
+Project's goal is to find deepfakes of human faces on the video.
+Processing raw video frames without specifying exact location of the faces
+can generally lead to high computational costs and bad performance of the classifier, 
+because the number of features becomes excessive.
+Spotting faces on big frame pictures and cropping them for further processing
+is one the efficient ways how to handle this issue, without causing any additional 
 overhead.
 
 # Scope
