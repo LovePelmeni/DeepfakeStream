@@ -116,7 +116,7 @@ def data_pipeline():
 
     if dataset_type.lower() == "train":
 
-        augments = augmentations.get_training_augmentations(
+        augments = augmentations.get_train_augmentations(
             IMAGE_SIZE=mtcnn_input_size)
 
     elif dataset_type.lower() == "validation":
