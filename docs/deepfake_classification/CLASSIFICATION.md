@@ -10,7 +10,7 @@
 One of the yet common solutions for face manipulation analysis, which paralellizes the processes of visual and spatial artifacts detections is called `Dual (Two) Stream Network`.
 
 <p align="center">
-  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/classification/dual_stream_net.webp" style="width: 100%; height: 100%"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/classification/dual_stream_net.webp" style="width: 90%; height: 70%"></a>
 </p>
 
 It separately runs two independent CNN-based networks, one, 
