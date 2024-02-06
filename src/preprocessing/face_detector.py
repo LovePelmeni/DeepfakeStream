@@ -7,6 +7,7 @@ import cv2
 import numpy.random
 import logging 
 import gc
+import numpy
 
 cv2.setNumThreads(0)
 cv2.ocl.setUseOpenCL(False)
@@ -58,18 +59,31 @@ class MTCNNFaceDetector(VideoFaceDetector):
         )
         self.use_landmarks = use_landmarks
 
-    def detect_faces(self, input_img: torch.Tensor):
-        face_boxes, *_, face_landmarks = self.detector.detect(
-            input_img, 
-            landmarks=self.use_landmarks
-        )
-        if face_boxes is None or face_landmarks is None:
+    def detect_faces(self, input_img: numpy.ndarray):
+
+        face_landmarks = None 
+
+        if self.use_landmarks == True:
+            face_boxes, probs, face_landmarks = self.detector.detect(
+                img=input_img, 
+                landmarks=self.use_landmarks
+            )
+        else:
+            face_boxes, probs = self.detector.detect(
+                img=input_img, 
+                landmarks=self.use_landmarks
+            )
+
+        if face_boxes is None or probs is None:
             return ([], [])
+
+        face_boxes = [box.tolist() for box in face_boxes]
         
-        return (
-            [box.tolist() for box in face_boxes], 
-            [face.tolist() for face in face_landmarks]
-        )
+        print(face_boxes)
+        print(face_landmarks)
+        
+        if self.use_landmarks: return face_boxes, probs, face_landmarks 
+        return face_boxes, probs
 class VideoFaceDataset(data.Dataset):
     """
     Dataset for processing deepfake videos
