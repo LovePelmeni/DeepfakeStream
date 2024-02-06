@@ -66,17 +66,17 @@ def get_validation_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Co
     """
     return albumentations.Compose(
         transforms=[
-            resize.IsotropicResize(
-                interpolation_down=cv2.INTER_AREA,
-                interpolation_up=cv2.INTER_LINEAR,
-                target_size=CROP_IMAGE_SIZE
-            ),
-            albumentations.HorizontalFlip(p=0.5),
             albumentations.ImageCompression(
                 quality_lower=90,
                 quality_upper=100,
                 compression_type=0,
                 p=0.3
-            )
+            ),
+            resize.IsotropicResize(
+                interpolation_down=cv2.INTER_AREA,
+                interpolation_up=cv2.INTER_LINEAR,
+                target_size=CROP_IMAGE_SIZE
+            ),
+            albumentations.HorizontalFlip(p=0.5)
         ]
     )

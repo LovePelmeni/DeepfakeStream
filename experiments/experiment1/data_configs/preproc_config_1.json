@@ -1,8 +1,8 @@
 {
-    "mtcnn_image_size": 1024,
+    "mtcnn_crop_margin": 200,
     "encoder_image_size": 380,
     "min_face_size": 160,
     "data_type": "fp16",
-    "frames_per_vid_ratio": 0.01,
+    "frames_per_vid": 1,
     "inference_device": "cpu"
 }

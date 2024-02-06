@@ -37,7 +37,11 @@ else
     'train' means, it will load .env configuration for the training dataset, \n
     provided under 'env_vars/train_data_pipeline.env' path. 'validation' means, it will load .env configuration for validation dataset \
     provided under 'env_vars/val_data_pipeline.env' path. You can use only these options, nothing else. \n
-    For more details check 'docs/data_management/DATA_PIPELINE.md'."
+    For more details check 'docs/data_management/DATA_PIPELINE.md'.
+    
+    Example:
+        sh ./preproc_pipeline 'train' -------> indicates we are running preprocessing on training data.
+        sh ./preproc_pipeline 'validation' -----> indicates we are running preprocessing on validation data."
     exit 1;
 fi
 

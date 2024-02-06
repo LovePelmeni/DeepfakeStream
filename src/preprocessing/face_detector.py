@@ -35,7 +35,7 @@ class MTCNNFaceDetector(VideoFaceDetector):
     min_face_size - (int) - minimum size of the human face to detect on the image
     """
     def __init__(self, 
-        image_size: int, 
+        margin: int, 
         use_landmarks: bool = False,
         keep_all_pred_faces: bool = False,
         min_face_size: int = 160,
@@ -47,7 +47,7 @@ class MTCNNFaceDetector(VideoFaceDetector):
 
         self.detector = MTCNN(
             post_process=True, # disable image normalization after detection
-            margin=0.6 * image_size, # padding of area for bounding boxes
+            margin=margin, # padding of area for bounding boxes
             min_face_size=min_face_size,
             device=inf_device,
             keep_all=keep_all_pred_faces,
@@ -63,7 +63,7 @@ class MTCNNFaceDetector(VideoFaceDetector):
 
         face_landmarks = None 
 
-        if self.use_landmarks == True:
+        if (self.use_landmarks == True):
             face_boxes, probs, face_landmarks = self.detector.detect(
                 img=input_img, 
                 landmarks=self.use_landmarks
@@ -75,14 +75,12 @@ class MTCNNFaceDetector(VideoFaceDetector):
             )
 
         if face_boxes is None or probs is None:
-            return ([], [])
+            return [], []
 
         face_boxes = [box.tolist() for box in face_boxes]
         
-        print(face_boxes)
-        print(face_landmarks)
-        
-        if self.use_landmarks: return face_boxes, probs, face_landmarks 
+        if (self.use_landmarks == True): 
+            return face_boxes, probs, face_landmarks 
         return face_boxes, probs
 class VideoFaceDataset(data.Dataset):
     """
@@ -101,7 +99,7 @@ class VideoFaceDataset(data.Dataset):
     def __init__(self, 
         video_paths: typing.List, 
         video_labels: typing.List,
-        frames_per_vid: float = 0.5,
+        frames_per_vid: float = 1,
     ):
         self.video_paths = video_paths
         self.video_labels = video_labels
@@ -122,17 +120,19 @@ class VideoFaceDataset(data.Dataset):
         except(FileNotFoundError, Exception):
             return []
 
-        if frame_num == 0: return []
+        if frame_num == 0: 
+            print("video '%s' is empty." % video_path)
+            return []
 
-        frames_to_extract = numpy.random.choice(
-            a=numpy.arange(int(frame_num)),
-            size=max(int(self.frames_per_vid * frame_num), 1)
-        )
+        extract_frames = max(min(self.frames_per_vid, frame_num), 1)
+        
+        ith_frame = frame_num // extract_frames
 
         frames = []
+        ith = 1
 
-        for idx in range(frame_num): # pick each 32-th video frame
-
+        while (ith-1) < (frame_num) and (len(frames) != extract_frames): # pick each 32-th video frame
+            
             success = video_buffer.grab()
 
             if not success: 
@@ -145,11 +145,13 @@ class VideoFaceDataset(data.Dataset):
             if len(frame.shape) == 3:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            if idx in frames_to_extract:
+            if ith % ith_frame:
                 frames.append(frame)
             else:
                 del frame
                 gc.collect()
+
+            ith += 1
 
         # closing video buffer after extracting frames 
         video_buffer.release()
