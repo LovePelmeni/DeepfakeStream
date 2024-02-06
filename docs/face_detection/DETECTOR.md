@@ -18,13 +18,13 @@ We assume having a N number of video frames of quadratic size (NxN) with presenc
 of at least one human face of minimum size (MxM), where M should be set manually as 
 it regulates the tradeoff between precision and computational costs. This is because
 having smaller minimum face size introduces more candidates for the network
-to filter out from during training / inference phase, therefore, computational time increase.
+to filter out from during training / inference phase, therefore, computational time increases.
 
-# ROI Extraction and Image preprocessing 
+# How we want to detect and process faces
 
 Passing the entire image to the network may introduce unnecessary 
 features and computations, to the model, we want to crop and refine 
-faces from the image. Example of face preprocessing pipeline used is down below.
+faces from the image, align them, then apply additional augmentations to small portion of uncertainty and make dataset more diverse. Example of face preprocessing pipeline we used is presented down below.
 
 <p align="center">
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/detection/roi_extraction.png" style="width: 80%; height: 80%"></a>
