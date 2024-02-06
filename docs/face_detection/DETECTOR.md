@@ -24,7 +24,7 @@ to filter out from during training / inference phase, therefore, computational t
 
 Passing the entire image to the network may introduce unnecessary 
 features and computations, to the model, we want to crop and refine 
-faces from the image, align them, then apply additional augmentations to small portion of uncertainty and make dataset more diverse. Example of face preprocessing pipeline we used is presented down below.
+faces from the image, align them, then apply additional augmentations to make dataset more diverse. Example of face preprocessing pipeline we used is presented down below.
 
 <p align="center">
   <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/detection/roi_extraction.png" style="width: 80%; height: 80%"></a>
