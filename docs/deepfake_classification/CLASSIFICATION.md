@@ -1,20 +1,17 @@
 # Deepfake Classification
 
-
 # Assumptions
 
 # Approach
 
-## Dual Stream Network
-
-One of the yet common solutions for face manipulation analysis, which paralellizes the processes of visual and spatial artifacts detections is called `Dual (Two) Stream Network`.
+We created custom classifier, based on the approach,
+proposed in paper "". Lastly we've added 3D SRM Filter, 
+which captures the noise of the input image, and then
+passes noisy map to the main classifier.
 
 <p align="center">
-  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/classification/dual_stream_net.webp" style="width: 90%; height: 70%"></a>
+  <a><img src="https://github.com/LovePelmeni/DeepfakeStream/blob/main/docs/imgs/classification/CNN_CLASSIFIER.png" style="width: 90%; height: 70%"></a>
 </p>
-
-It separately runs two independent CNN-based networks, one, 
-
 
 ## Inference Parallelization 
 
