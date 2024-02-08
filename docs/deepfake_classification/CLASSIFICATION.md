@@ -5,7 +5,8 @@
 # Approach
 
 We created custom classifier, based on the approach,
-proposed in paper "". Lastly we've added 3D SRM Filter, 
+proposed in paper "Improving Deepfake Video Detection Using Data
+Augmentation Techniques" by Harshil Dharmesh Doshi, Akshat Nitin Savla and others". Lastly we've added 3D SRM Filter, 
 which captures the noise of the input image, and then
 passes noisy map to the main classifier.
 
