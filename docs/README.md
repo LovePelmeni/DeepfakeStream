@@ -32,19 +32,20 @@ The input data typically passed as a video file (.mp4) with presence of (deepfak
 We want to find solution, which adapts well to the `Deepfake Detection Challenge [DFDC] video dataset`, while demanding tenable amount of FLOPs and power to be inferenced in production environment realities.
 
 ## Proposed Solution
-- *Architecture overview*: 
+
+- Architecture overview: 
 
     The system comprises of a single REST application, deployed using containerization strategy called `Docker`, additionally, supports image builds via `CI` pipeline and deployment via corresponding `CD` pipeline, based on `Github Actions` technology.
 
-- *Data ingestion and processing*:
+- Data ingestion and processing:
 
     Before passing data right to the classifier, we crop out human faces to reduce number of unnecessary spatial features, then apply set of predefined augmentations. For more details, you can visit document, which 
 
-- *Model Inference*:
+- Model Inference:
 
     inference supports several options, which can be defined manually using configuration file. Currently, you can select from running network on `CPU` and one or multiple `GPUs`, other backends are not supported yet.
 
-- *Model Design*: 
+- Model Design: 
    
     Model consists of following stages:
 
@@ -55,11 +56,11 @@ We want to find solution, which adapts well to the `Deepfake Detection Challenge
 
     We first pass data through `MTCNN`, to extract ROI (Regions of Interests), in our case, ROIs are represented as 'human faces'. Then, we compute noise features for each extracted face using concept of `SRM Filters`. After noise extraction, these maps are passed to EfficientNet-based classifier, which performs the main portion of noise analysis. Lastly, we pass the output of classifier to Custom CNN-based network, which computes the final probability of the face being deepfaked.
 
-- *Data Collection*:
+- Data Collection:
 
     As a main source of data, we used around 200G of real and deepfake videos, gathered from `Deepfake Detection Challenge (DFDC) Dataset`, collected by Meta. It contains 100K of deepfaked video clips with 1-2 random people per each, and 19K of real human video clips.
 
-- *Evaluation Metrics*: 
+- Evaluation Metrics: 
 
     As an evaluation metric, we selected `F1-Score`.
     It provides the way of balancing between precision and recall. For deepfake detection problem, both precisio and recall are important. High precision indicates, that model accurately identifies positive examples, while preserves minimum number of false positives. High Recall indicates a high portion of accurately identified positive examples out of the entire distribution of positively marked samples. Therefore, `F1-Score` is highly valuable, as it ensures, that both objectives are met.
