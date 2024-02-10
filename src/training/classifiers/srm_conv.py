@@ -7,6 +7,12 @@ class SRMConv(object):
     """
     5x5 3-channel SRM Filter for Noise Analysis
     Paper for reference: https://www.cs.columbia.edu/~jrk/NSFgrants/videoaffinity/Interim/22x_Rohit.pdf
+
+    NOTE:
+        SRM Convolution has only
+        two implementations: 3x3 and 5x5
+        it is not recommended to change the size
+        of the layer, as it may lead to unexpected results
     """
     def __init__(self, in_channels: int):
 
