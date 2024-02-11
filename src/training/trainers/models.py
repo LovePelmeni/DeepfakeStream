@@ -8,6 +8,7 @@ import random
 from tqdm import tqdm
 import gc
 import os
+from torch.utils.tensorboard import SummaryWriter
 
 from src.training.regularizations.regularization import EarlyStopping, LabelSmoothing
 from src.training.evaluators import sliced_evaluator
@@ -22,53 +23,7 @@ handler.setFormatter(formatter)
 trainer_logger.setLevel(logging.WARN)
 trainer_logger.addHandler(handler)
 
-
-from abc import ABC, abstractmethod
-import os
-class BaseTrainer(ABC):
-
-    @abstractmethod
-    def load_snapshot(self, snapshot_path: str) -> None:
-        """
-        Loads state of the model from snapshot path
-        Parameters:
-        -----------
-            snapshot_path (str) - path to the snapshot
-        """
-
-    @abstractmethod
-    def save_snapshot(self, **kwargs) -> None:
-        """
-        Saves checkpoint (snapshot) of the model
-        under specific file path and format.
-
-        Possible formats:
-            - "pth", "pt", "onnx"
-
-        Example arguments:
-            path = "path/to/save/snapshot/"
-            format = ".onnx"
-            output_path = os.path.join(path, "model" + format)
-            model.save(output_path)
-        """
-    
-    @abstractmethod
-    def prepare_loader(self, dataset: data.Dataset) -> data.DataLoader:
-        """
-        Prepares loader for training model
-        """
-
-    @abstractmethod
-    def train(self, dataset: data.Dataset) -> float:
-        """
-        Trains classifier with 'dataset'
-        Parameters:
-        -----------
-            dataset - (data.Dataset) - training dataset
-        Returns:
-            - train loss over epochs (float number)
-        """
-class NetworkTrainer(BaseTrainer):
+class NetworkTrainer(object):
     """
     Pipeline class, used for training 
     and evaluating neural networks
@@ -169,17 +124,38 @@ class NetworkTrainer(BaseTrainer):
             max_queue=10
         )
 
-        self.encoder_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "encoder"), 
+        self.network_writer = SummaryWriter(
+            log_dir=os.path.join(log_dir, "network_params"), 
             max_queue=10
         )
 
-        self.custom_net_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "custom_network"), 
-            max_queue=10
-        )
+    def save_model(self, 
+        model_path: str,
+        test_input: torch.Tensor,
+        model_format: typing.Literal['pt', 'pth', 'onnx']
+    ):
+        test_input.requires_grad = False
+        if not len(test_input.shape) == 4:
+
+            raise ValueError(
+            msg='invalid tensor shape, should be 4, but got "%s"' 
+            % len(test_input.shape))
+
+        if model_format == "onnx":
+            torch.onnx.export(
+                model=self.network, 
+                args=test_input, 
+                training=False,
+                f=model_path
+            )
+        else:
+            torch.save(
+                obj=self.network.state_dict(), 
+                f=model_path
+            )
+        
     
-    def track_network_params(self, writer: SummaryWriter, global_step: int):
+    def track_network_params(self, global_step: int):
         """
         Method for tracking 
         network weight distribution
@@ -196,7 +172,7 @@ class NetworkTrainer(BaseTrainer):
             elif 'bias' in param_name:
                 tag_name = 'biases'
 
-            writer.add_histogram(
+            self.network_writer.add_histogram(
                 tag="%s/%s" % (param_name, tag_name),
                 values=param.clone().cpu().data.numpy(),
                 global_step=global_step
@@ -454,3 +430,5 @@ class NetworkTrainer(BaseTrainer):
                     torch.ones_like(output_labels)
                 )
                 return metric
+
+

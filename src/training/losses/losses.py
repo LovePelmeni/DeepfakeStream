@@ -47,11 +47,21 @@ class WeightedLoss(nn.Module):
 
 class FocalLoss(nn.Module):
 
-    def __init__(self, weights: list, weight_type: torch.dtype, gamma=2):
+    def __init__(self, 
+        num_classes: int,
+        weight_type: torch.dtype = torch.float32, 
+        gamma=2, 
+        weights: list = None
+    ):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
+
+        if not weights:
+            weights = torch.ones(size=(num_classes))
+
         weight_values = torch.as_tensor(weights).to(weight_type)
         weight_classes = range(len(weights))
+
         self.weights = {c:w for c, w in zip(weight_classes, weight_values)}
 
     def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor):
