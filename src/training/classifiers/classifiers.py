@@ -1,22 +1,33 @@
 from torch import nn
 import torch
 from src.training.classifiers import srm_conv
-from timm import models
+from timm.models.efficientnet import (
+    tf_efficientnet_b3, 
+    tf_efficientnet_b2, 
+    tf_efficientnet_b4, 
+    tf_efficientnet_b5
+)
+from functools import partial 
 
-encoders = {
-    "efficientnet-b3-ns": {
-        "cls": models.efficientnet.tf_efficientnet_b3_ns,
-        "features": 1280
+encoder_params = {
+    "tf_efficientnet_b3": {
+        "features": 1536,
+        "encoder": partial(tf_efficientnet_b3, pretrained=True, drop_path_rate=0.2)
     },
-    "efficientnet-b2-ns": {
-        "cls": models.efficientnet.efficientnet_b2,
-        "features": 1280,
+    "tf_efficientnet_b2": {
+        "features": 1408,
+        "encoder": partial(tf_efficientnet_b2, pretrained=False, drop_path_rate=0.2)
     },
-    "efficientnet-b4-ns": {
-        "cls": models.efficientnet.efficientnet_b1,
-        "features": 1280
-    }
+    "tf_efficientnet_b4": {
+        "features": 1792,
+        "encoder": partial(tf_efficientnet_b4, pretrained=True, drop_path_rate=0.5)
+    },
+    "tf_efficientnet_b5": {
+        "features": 2048,
+        "encoder": partial(tf_efficientnet_b5, pretrained=True, drop_path_rate=0.2)
+    },
 }
+
 class DeepfakeClassifier(nn.Module):
     """
     Deepfake classifier prototype
@@ -35,7 +46,7 @@ class DeepfakeClassifier(nn.Module):
     """
     def __init__(self, # 256x256
         input_channels: int, 
-        encoder: nn.Module
+        encoder_name: str
     ):
         super(DeepfakeClassifier, self).__init__()
         self.conv1 = nn.Conv2d(
@@ -43,11 +54,11 @@ class DeepfakeClassifier(nn.Module):
             out_channels=input_channels,
             bias=False
         ) 
-        self.encoder = encoder
+        self.encoder = encoder_params[encoder_name]['encoder']
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
-            in_features=encoders[encoder]['out_features'],
+            in_features=encoder_params[encoder_name]['features'],
             out_features=128,
             bias=True
         )
@@ -83,8 +94,8 @@ class DeepfakeClassifierSRM(nn.Module):
     Version of deepfake classifier, based on concept
     of SRM (Spatial Rich Model) Filters.
     """
-    def __init__(self, input_channels: int, encoder):
-        super(DeepfakeClassifier, self).__init__(encoder)
+    def __init__(self, input_channels: int, encoder_name: str):
+        super(DeepfakeClassifier, self).__init__()
 
         self.conv1 = nn.Conv2d(
             in_channels=input_channels, 
@@ -92,7 +103,7 @@ class DeepfakeClassifierSRM(nn.Module):
             stride=1,
             bias=False
         )
-        self.encoder = encoders[encoder]['cls']()
+        self.encoder = encoder_params[encoder_name]['encoder']
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.dropout1 = nn.Dropout()
@@ -167,24 +178,24 @@ class DeepfakeClassifierGWAP(nn.Module):
     with usage of Global Weighted Average Pooling layer,
     instead of standard avg pool.
     """
-    def __init__(self, encoder):
+    def __init__(self, encoder_name: str):
         super(DeepfakeClassifierGWAP, self).__init__()
 
-        self.encoder = encoders[encoder]['cls']()
+        self.encoder = encoder_params[encoder_name]['encoder']
 
         self.globalpool1 = GlobalWeightedAveragePooling(
-            input_size=encoders[encoder]['features'],
+            input_size=encoder_params[encoder_name]['features'],
             flatten=True
         )
 
         self.batchnorm1 = nn.BatchNorm1d(
-            num_features=encoders[encoder]['features']
+            num_features=encoder_params[encoder_name]['features']
         )
 
         self.dropout1 = nn.Dropout(p=0.5)
 
         self.dense1 = nn.Linear(
-            in_features=encoders[encoder]['features'], 
+            in_features=encoder_params[encoder_name]['features'], 
             out_features=64,
             bias=True
         )
