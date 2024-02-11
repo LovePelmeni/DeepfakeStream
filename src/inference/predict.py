@@ -4,7 +4,7 @@ import torch
 import pathlib
 import json
 import cv2
-from efficientnet_pytorch import EfficientNet
+from src.training.classifiers import classifiers
 
 class InferenceModel(object):
 
@@ -20,6 +20,7 @@ class InferenceModel(object):
 
         try:
             input_image_size = img_config.get("input_image_size")
+            input_channels = img_config.get("input_image_channels")
             encoder_image_size = img_config.get("encoder_image_size")
 
             min_face_size = img_config.get("min_face_size", 160)
@@ -40,7 +41,10 @@ class InferenceModel(object):
             min_face_size=min_face_size,
             inf_device=cls._inference_device
         )
-        cls._deepfake_classifier = EfficientNet.from_pretrained(encoder_name.lower())
+        cls._deepfake_classifier = classifiers.DeepfakeClassifierSRM(
+            input_channels=input_channels,
+            encoder=classifiers.encoder_params[encoder_name]['encoder']
+        )
         return cls()
 
     def predict(self, input_img: numpy.ndarray):
@@ -62,17 +66,24 @@ class InferenceModel(object):
         device_faces = torch.stack(cropped_faces).to(self.inference_device)
         predicted_probs = self._deepfake_classifier.forward(inputs=device_faces).cpu()
         
-        predicted_probs = torch.argmax(predicted_probs, dim=1, keepdim=False)
-        predicted_labels = numpy.where(predicted_probs >= 0.5, 1, 0)
+        pred_faces_probs = torch.argmax(predicted_probs, dim=1, keepdim=False)
+        pred_faces_labels = numpy.where(predicted_probs >= 0.5, 1, 0)
+        output_preds = []
+
+        for face_idx in range(len(device_faces)):
+            output_preds.append(
+                {
+                    'face_coords': cropped_faces[face_idx],
+                    'label': pred_faces_labels[face_idx],
+                    'probability': pred_faces_probs[face_idx]
+                }
+            )
 
         del cropped_faces 
         del device_faces
         del faces 
         del resized_img 
 
-        return predicted_labels
+        return output_preds
         
-
-
-
 
