@@ -1,7 +1,6 @@
-import src.pipelines.train_utils as utils
+import src.pipelines.utils as utils
 from src.preprocessing import crop_augmentations
 from src.preprocessing.face_detector import VideoFaceDataset, MTCNNFaceDetector
-from src.preprocessing import prep_utils
 
 import cv2
 import pandas
@@ -12,9 +11,8 @@ import sys
 from torch.utils import data
 import os
 from tqdm import tqdm
-import numpy
 import torch
-import matplotlib.pyplot as plt
+import gc
 
 """
 Data preprocessing pipeline
@@ -50,16 +48,16 @@ def data_pipeline():
     arg = parser.add_argument
 
     arg("--data-dir", type=str, dest='data_dir',
-        required=True, help='path, containing original and fake videos.')
+        required=True, help='folder, containing original and fake videos.')
 
-    arg('--json-data-config-path', type=str, dest='prep_config_path', required=True,
+    arg("--labels-path", type=str, dest='labels_path',
+        required=True, help='path to video labels csv file')
+
+    arg('--preproc-config-path', type=str, dest='prep_config_path', required=True,
         help='.json file, containing extra information about preprocessing. \
         Information for face detector, frames per video to extract, etc...')
 
-    arg('--csv-labels-crop-path', type=str, dest='labels_crop_path',
-        required=True, help='path to save labels for cropped faces')
-
-    arg("--crop-dir", type=str, dest='crop_dir',
+    arg("--output-crop-dir", type=str, dest='crop_dir',
         required=True, help='destination path for storing cropped faces')
 
     arg('--dataset-type',
@@ -74,16 +72,15 @@ def data_pipeline():
 
     config_dir = pathlib.Path(args.prep_config_path)
     data_dir = pathlib.Path(args.data_dir)
+    labels_path = pathlib.Path(args.labels_path)
 
-    output_labels_crop_dir = pathlib.Path(args.labels_crop_path)
     output_crop_dir = pathlib.Path(args.crop_dir)
+    output_labels_crop_dir = pathlib.Path(os.path.join(output_crop_dir, "crop_labels.csv"))
 
     # initializing crop output directories for crops and it's labels
 
     os.makedirs(output_labels_crop_dir.parent, exist_ok=True)
     os.makedirs(output_crop_dir, exist_ok=True)
-
-    runtime_logger.debug('3. loaded configuration files! \n')
 
     img_config = utils.load_config(config_path=config_dir)
 
@@ -101,14 +98,14 @@ def data_pipeline():
     try:
         mtcnn_crop_margin = img_config.get(
             "mtcnn_crop_margin")  # margin to add to the cropped face
-    except (KeyError):
+    except KeyError:
         raise SystemExit("""you did not provide 'mtcnn_image_size' parameter,
             as it is required for fetching faces from the video frames. 
             The 'mtcnn_image_size' is basically the resolution 
             of the videos you have in your dataset.""")
     try:
         encoder_image_size = img_config.get("encoder_image_size")
-    except (KeyError):
+    except KeyError:
         raise SystemExit("""You didn't specified 'encoder_image_size' parameter, \
             which is stands for the size of the output cropped faces""")
 
@@ -123,28 +120,28 @@ def data_pipeline():
 
         augments = crop_augmentations.get_validation_crop_augmentations(
             CROP_IMAGE_SIZE=encoder_image_size)
+    else:
+        raise SystemExit("invalid dataset type, acceptable only 'train' or 'validation'.")
 
     # extracting video paths from the original and fake video paths
 
-    original_videos = numpy.asarray(
-        prep_utils.get_originals_without_fakes(root_dir=data_dir))
-    fake_videos = numpy.asarray(
-        prep_utils.get_fakes_without_originals(root_dir=data_dir))
+    labels = pandas.read_csv(labels_path)
 
-    output_video_paths = numpy.concatenate([original_videos, fake_videos])
-    output_video_labels = numpy.concatenate(
-        [
-            numpy.repeat([0], len(original_videos)),
-            numpy.repeat([1], len(fake_videos))
-        ]
-    )
+    video_names = labels['name'].tolist()
 
-    if (len(output_video_paths.flatten()) == 0) or (len(output_video_labels.flatten()) == 0):
-        raise SystemExit("Failed to find unique images for processing.")
+    video_paths = [
+        os.path.join(data_dir, video)
+        for video in video_names
+    ]
+
+    video_labels = labels['label'].tolist()
+
+    if len(video_paths) == 0:
+        raise SystemExit("failed to find any videos from the folder you've provided. Make sure labels file is correct and folder does exist")
 
     video_dataset = VideoFaceDataset(
-        video_paths=output_video_paths,
-        video_labels=output_video_labels,
+        video_paths=video_paths,
+        video_labels=video_labels,
         # 1 percent of frames from the video is selected to avoid duplicates
         frames_per_vid=frames_per_vid
     )
@@ -167,7 +164,7 @@ def data_pipeline():
     # processing label information
 
     output_labels = pandas.DataFrame(
-        columns=["crop_path", "label", "video_id"])
+        columns=["name", "split", "label"])
 
     # processing videos
 
@@ -175,86 +172,97 @@ def data_pipeline():
 
     with torch.no_grad():
 
-        for label, ext_frames in tqdm(video_loader, desc="processing video #%s: " % str(curr_video)):
+        with tqdm(desc='videos processed') as tq:
 
-            video_id = os.path.splitext(os.path.basename(
-            video_dataset.video_paths[curr_video]))[0]
+            for frame_labels, ext_frames in video_loader:
 
-            for frame_idx in range(len(ext_frames)):
+                video_id = os.path.splitext(video_names[curr_video])[0]
 
-                # extracting video frame from the video
-                video_frame = ext_frames[frame_idx].squeeze(0).numpy()
+                for frame_idx in range(len(ext_frames)):
 
-                if (video_frame.shape[2] == 3):
-                    video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
-                    
-                # predicting faces bounding boxes and landmarks
-                face_boxes, _ = detector.detect_faces(video_frame)
+                    # extracting video frame from the video
+                    video_frame = ext_frames[frame_idx].squeeze(0).numpy()
 
-                # matching bounding boxes between each other
+                    if (video_frame.shape[2] == 3):
+                        video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
 
-                if len(face_boxes) == 0:
-                    print("! failed to find any faces at video: '%s', at '%s' frame !" % (
-                        video_dataset.video_paths[curr_video],
-                        frame_idx
+                    # predicting faces bounding boxes and landmarks
+                    face_boxes, _ = detector.detect_faces(video_frame)
+
+                    # matching bounding boxes between each other
+
+                    if len(face_boxes) != 0:
+                        print("found %s faces at video: '%s', at '%s' frame." % (
+                            len(face_boxes),
+                            video_dataset.video_paths[curr_video],
+                            frame_idx
+                            )
                         )
-                    )
-                    
-                else:
-                    print("found %s faces at video: '%s', at '%s' frame." % (
-                        len(face_boxes), 
-                        video_dataset.video_paths[curr_video],
-                        frame_idx
-                        )
-                    )
 
-                for box_idx in range(len(face_boxes)):
+                    for box_idx in range(len(face_boxes)):
 
-                    ox1, oy1, ox2, oy2 = face_boxes[box_idx]
+                        ox1, oy1, ox2, oy2 = face_boxes[box_idx]
 
-                    ox1 = max(round(ox1), 0)
-                    ox2 = max(round(ox2), 0) if ox2 < video_frame.shape[0] else video_frame.shape[0]
-                    oy1 = max(round(oy1), 0)
-                    oy2 = max(round(oy2), 0) if oy2 < video_frame.shape[1] else video_frame.shape[1]
+                        ox1 = max(round(ox1), 0)
+                        ox2 = max(round(ox2), 0) if ox2 < video_frame.shape[0] else video_frame.shape[0]
+                        oy1 = max(round(oy1), 0)
+                        oy2 = max(round(oy2), 0) if oy2 < video_frame.shape[1] else video_frame.shape[1]
 
 
-                    if ((ox2 - ox1) < min_face_size) or ((oy2 - oy1) < min_face_size):
-                        continue
-                    
-                    cropped_face = video_frame[
-                        oy1:oy2,
-                        ox1:ox2
-                    ]
+                        if ((ox2 - ox1) < min_face_size) or ((oy2 - oy1) < min_face_size):
+                            continue
 
-                    augmented_face = augments(image=cropped_face)['image']
+                        cropped_face = video_frame[
+                            oy1:oy2,
+                            ox1:ox2
+                        ]
 
-                    # resizing face crop, according to the encoder input requirements
+                        augmented_face = augments(image=cropped_face)['image']
 
-                    face_file_name = "{}_{}_{}.png".format(
-                        str(video_id), str(frame_idx), str(box_idx))
-                    frame_path = os.path.join(output_crop_dir, face_file_name)
+                        # resizing face crop, according to the encoder input requirements
 
-                    # saving extracted fake and original faces
-                    cv2.imwrite(filename=frame_path, img=augmented_face)
+                        face_file_name = "{}_{}_{}.png".format(
+                            str(video_id), str(frame_idx), str(box_idx))
+                        frame_path = os.path.join(output_crop_dir, face_file_name)
 
-                    row = pandas.Series(
-                        data={
-                            'crop_path': frame_path,
-                            'label': label.item(),
-                            'video_id': video_id
-                        }
-                    )
-                    output_labels = pandas.concat([output_labels, row])
+                        # saving extracted fake and original faces
+                        success = cv2.imwrite(filename=frame_path, img=augmented_face)
+                        if success:
+                            row = pandas.DataFrame(
+                                data={
+                                    'name': [face_file_name],
+                                    'split': [dataset_type.lower()],
+                                    'label': [frame_labels[0]]
+                                }
+                            )
+                            output_labels = pandas.concat([output_labels, row])
+                        else:
+                            print("failed to save image file: '%s'" % face_file_name)
 
-            curr_video += 1
+                curr_video += 1
+                tq.update()
+
+                del ext_frames
+                gc.collect()
+
+
+    print('managed to found %s faces out of %s' % (curr_video, len(video_dataset.video_paths)))
 
     if len(output_labels) == 0:
         raise SystemExit(
             """none of the videos, mentioned in CSV label config does exist.""")
 
     # saving final crop output labels
-    output_labels.to_csv(path_or_buf=output_labels_crop_dir)
+    output_labels.to_csv(path_or_buf=output_labels_crop_dir, index=False)
 
+    # removing variables and turning on garbage collector
+
+    del video_dataset
+    del video_paths
+    del video_loader
+    del video_labels
+    del detector
+    gc.collect()
     print("processing pipeline completed")
 
 
