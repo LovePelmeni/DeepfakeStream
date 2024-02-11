@@ -34,8 +34,11 @@ class LabelSmoothing(nn.Module):
 
         self.etta = etta
         self.smoother = lambda logits: (
-            1 - etta) * logits + etta * (1 / len(logits))
+            1 - etta) * logits + etta * (1 / len(logits) + 1)
 
     def forward(self, dist_logits: torch.Tensor):
         smoothed_logits = self.smoother(dist_logits)
         return smoothed_logits
+
+
+

@@ -8,14 +8,10 @@ import random
 from tqdm import tqdm
 import gc
 import os
+from torch.utils.tensorboard import SummaryWriter
 
 from src.training.trainers.regularization import EarlyStopping, LabelSmoothing
 from src.training.evaluators import sliced_evaluator
-
-from torch.distributed import destroy_process_group, init_process_group 
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data.distributed import DistributedSampler
-import torch.multiprocessing as mp
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
@@ -30,6 +26,7 @@ trainer_logger.addHandler(handler)
 from abc import ABC, abstractmethod
 import os
 class BaseTrainer(ABC):
+
 
     @abstractmethod
     def load_snapshot(self, snapshot_path: str) -> None:
@@ -111,13 +108,40 @@ class NetworkTrainer(BaseTrainer):
                  optimizer: nn.Module,
                  checkpoint_dir: str,
                  output_weights_dir: str,
+                 log_dir: str,
+                 save_every: int,
                  lr_scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
-                 label_smoothing_eps: float = 0
+                 label_smoothing_eps: float = 0,
+                 distributed: bool = False,
+                 reproducible: bool = False,
+                 seed: int = None
                  ):
 
+        if distributed:
+
+            device_ids = [
+                int(cuda_id) for cuda_id 
+                in train_device.split(":")[-1].split(",")
+            ]
+
+            if not len(device_ids): 
+                raise ValueError("""invalid device name 
+                for distributed training, shoule be in a format: 'cuda:x,y,z', 
+                however, got: '%s'""" % train_device)
+
+            self.network = nn.parallel.DistributedDataParallel(
+                module=network, 
+                device_ids=device_ids
+            )
+
+        self.reproducible = reproducible
+        self.seed = seed
+        self.distributed = distributed
+
         self.network = network.to(train_device)
+
         self.max_epochs = max_epochs
         self.batch_size = batch_size
         self.optimizer = optimizer
@@ -138,12 +162,70 @@ class NetworkTrainer(BaseTrainer):
         self.eval_metric = eval_metric
 
         self.loader_num_workers = loader_num_workers
-        self.seed_generator = torch.Generator()
-        self.seed_generator.manual_seed(0)
+        self.save_every = save_every
 
         self.checkpoint_dir = checkpoint_dir
         self.output_weights_dir = output_weights_dir
 
+        self.overall_writer = SummaryWriter(
+            log_dir=log_dir, 
+            max_queue=10
+        )
+
+        self.network_writer = SummaryWriter(
+            log_dir=os.path.join(log_dir, "network_params"), 
+            max_queue=10
+        )
+
+    def save_model(self, 
+        model_path: str,
+        test_input: torch.Tensor,
+        model_format: typing.Literal['pt', 'pth', 'onnx']
+    ):
+        test_input.requires_grad = False
+        if not len(test_input.shape) == 4:
+
+            raise ValueError(
+            msg='invalid tensor shape, should be 4, but got "%s"' 
+            % len(test_input.shape))
+
+        if model_format == "onnx":
+            torch.onnx.export(
+                model=self.network, 
+                args=test_input, 
+                training=False,
+                f=model_path
+            )
+        else:
+            torch.save(
+                obj=self.network.state_dict(), 
+                f=model_path
+            )
+        
+    
+    def track_network_params(self, global_step: int):
+        """
+        Method for tracking 
+        network weight distribution
+
+        Parameters:
+        ----------
+            global_step - (int) - number of batches run previously
+        """
+        for param_name, param in self.network.named_parameters():
+            
+            if 'weight' in param_name:
+                tag_name = 'weights'
+
+            elif 'bias' in param_name:
+                tag_name = 'biases'
+
+            self.network_writer.add_histogram(
+                tag="%s/%s" % (param_name, tag_name),
+                values=param.clone().cpu().data.numpy(),
+                global_step=global_step
+            )
+        
     @staticmethod
     def seed_loader_worker(worker_id: int):
         worker_seed = torch.initial_seed() % 2 ** 32
@@ -186,6 +268,8 @@ class NetworkTrainer(BaseTrainer):
 
     def load_snapshot(self, snapshot_path: str) -> None:
         """
+        Loads the network from the 'snapshot_path'
+        directory.
         """
         if os.path.exists(snapshot_path):
             file_format = os.splitext(os.basename(snapshot_path))[1]
@@ -196,30 +280,75 @@ class NetworkTrainer(BaseTrainer):
                 self.network = self.network.load_state_dict(config['model_state'])
                 self.network = self.network.to(config['train_device'])
 
-    def prepare_loader(self, dataset: data.Dataset):
-        return data.DataLoader(
-            dataset=dataset,
-            shuffle=True,
-            batch_size=self.batch_size,
-            num_workers=self.loader_num_workers
-        )
+    def get_reproducible_loader(self, worker_seed: int, loader: data.DataLoader) -> data.DataLoader:
+        """
+        Sets the deterministic behaviour
+        of dataloader's workers
+        """
+        if not self.seed:
+            raise ValueError(msg="""you did not specified any seed. 
+            Pass `seed=value` argument to the object 
+            for setting up the seed for reproducibility""")
+
+        seed_generator = torch.Generator(device=self.train_device)
+        seed_generator.manual_seed(seed=worker_seed)
+        loader.worker_init_fn = self.seed_loader_worker
+        loader.generator = seed_generator
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+ 
+    def reset_reproducible(self, loader: data.DataLoader):
+        loader.worker_init_fn = None
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        loader.generator = None
+        
+    def prepare_loader(self, dataset: data.Dataset) -> data.DataLoader:
+        """
+        Prepares dataset for training
+        Options:
+            - in case 'distributed' set to False,
+            returns standard data loader 
+            - otherwise, returns data loader,
+            adapted for training on multiple GPU devices
+        Returns:
+            - data.DataLoader object
+        """
+        if self.distributed:
+            loader = data.DataLoader(
+                dataset=dataset,
+                shuffle=False,
+                batch_size=self.batch_size,
+                num_workers=self.loader_num_workers,
+                sampler=data.DistributedSampler(dataset=dataset)
+            )
+        else:
+            loader = data.DataLoader(
+                dataset=dataset,
+                shuffle=True,
+                batch_size=self.batch_size,
+                num_workers=self.loader_num_workers,
+                pin_memory=False
+            )
+
+        if self.reproducible:
+            return self.get_reproducible_loader(
+                worker_seed=self.seed, 
+                loader=loader
+            )
+        else:
+            return self.get_reproducible_loader(
+                worker_seed=self.seed,
+                loader=loader
+            )
 
     def train(self, train_dataset: data.Dataset):
 
         self.network.train()
 
-        loader = data.DataLoader(
-            dataset=train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.loader_num_workers,
-            worker_init_fn=self.seed_loader_worker,
-            generator=self.seed_generator
-        )
-
-        best_loss = float('inf')
-        best_eval_metric = 0
-        loss_history = []
+        loader = self.prepare_loader(dataset=train_dataset)
+        global_step = 0
+        best_loss = 0
 
         for epoch in range(self.max_epochs):
 
@@ -230,41 +359,76 @@ class NetworkTrainer(BaseTrainer):
                 desc='EPOCH %s, LOSS: %s, EVAL METRIC: %s ' % (
                     str(epoch), str(best_loss), str(best_eval_metric))):
 
-                predictions = self.network.to(self.train_device).forward(
+                predictions = self.network.forward(
                     imgs.clone().detach().to(self.train_device))
 
                 softmax_probs = torch.softmax(predictions, dim=1)
-                smoothed_softmax_probs = self.label_smoother(softmax_probs)
-                loss = self.loss_function(smoothed_softmax_probs, classes)
+
+                # computing one hot distribution
+                one_hots = torch.zeros_like(softmax_probs)
+                
+                for idx, class_ in enumerate(classes):
+                    one_hots[idx][class_] = 1
+
+                smoothed_one_hots = torch.as_tensor(self.label_smoother(one_hots))
+
+                loss = self.loss_function(softmax_probs, smoothed_one_hots)
+                
                 epoch_loss += loss.item()
 
                 # flushing cached predictions
                 predictions.zero_()
 
+                # clearing up dynamic memory
                 gc.collect()
                 torch.cuda.empty_cache()
 
                 loss.backward()
                 self.optimizer.step()
 
-            loss_history.append(epoch_loss)
+                # tracking distributions of network parameters
+                self.track_network_params(
+                    writer=self.encoder_writer, 
+                    global_step=global_step
+                )
 
-            best_loss = min(best_loss, round(epoch_loss, 3))
+                self.track_network_params(
+                    writer=self.custom_net_writer, 
+                    global_step=global_step
+                )
+
+                global_step += 1
+
+            # tracking training loss history
+
+            self.overall_writer.add_scalar(
+                tag='training loss',
+                scalar_value=numpy.mean(epoch_loss)
+            )
+
+            best_loss = min(best_loss, numpy.mean(best_loss))
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
             if self.early_start <= (epoch + 1):
+
                 metric = self.evaluate(self.early_dataset)
                 best_eval_metric = max(metric, round(best_eval_metric, 3))
                 step = self.early_stopper.step(metric)
+
+                # tracking evaluation metric
+                self.overall_writer.add_scalar(
+                    tag='evaluation metric', 
+                    scalar_value=best_eval_metric,
+                    global_step=epoch
+                )
+
                 if step:
                     break
 
-            if (epoch + 1) % 3 == 0:
+            if (epoch + 1) % self.save_every == 0:
                 self.save_checkpoint(epoch_loss, epoch)
-
-        return best_loss, loss_history
 
     def evaluate(self, validation_dataset: data.Dataset, slicing=False):
 
@@ -282,14 +446,7 @@ class NetworkTrainer(BaseTrainer):
             else:
                 output_labels = torch.tensor([]).to(torch.uint8)
                 try:
-                    loader = data.DataLoader(
-                        dataset=validation_dataset,
-                        batch_size=self.batch_size,
-                        shuffle=True,
-                        num_workers=self.loader_num_workers,
-                        worker_init_fn=self.seed_loader_worker,
-                        generator=self.seed_generator,
-                    )
+                    loader = self.prepare_loader(dataset=validation_dataset)
                 except (ValueError) as val_err:
                     trainer_logger.error(val_err)
                     raise SystemExit(
@@ -321,144 +478,3 @@ class NetworkTrainer(BaseTrainer):
                     torch.ones_like(output_labels)
                 )
                 return metric
-
-class DistributedTrainer(BaseTrainer):
-    """
-    Trainer, that leverages concept 
-    of distributed training for training 
-    network more faster. However, requires 
-    availability of multiple GPUs for faster training.
-    """
-    def __init__(self,
-        network: nn.Module,
-        loss_function: nn.Module,
-        eval_metric: nn.Module,
-        max_epochs: int,
-        batch_size: int,
-        optimizer: nn.Module,
-        lr_scheduler: nn.Module,
-        save_every: int,
-        process_rank: str,
-        process_world_size: str,
-        master_addr: str,
-        master_port: int,
-        device_ids: typing.List,
-        snapshot_path: str
-    ):
-        self.loss_function = loss_function
-        self.eval_metric = eval_metric 
-        self.max_epochs: int = max_epochs 
-        self._process_rank = process_rank 
-        self._process_world_size = process_world_size 
-        self._master_addr: str = master_addr
-        self._master_port: str = str(master_port)
-        self.save_every = save_every
-        self.optimizer = optimizer 
-        self.batch_size = batch_size 
-        self.lr_scheduler: nn.Module = lr_scheduler 
-        self.optimizer: nn.Module = optimizer
-        self.network: nn.Module = self.get_ddp_network(network, device_ids=device_ids)
-
-        if snapshot_path is not None:
-            self.load_checkpoint(snapshot_path)
-
-    def get_ddp_network(self, network: nn.Module, device_ids: typing.List):
-        return DistributedDataParallel(
-            module=network, 
-            device_ids=device_ids
-        )
-
-    def set_ddp(self, 
-        master_addr: str, 
-        master_port: int, 
-        rank: str, 
-        world_size: int
-    ):
-        os.environ['MASTER_ADDR'] = master_addr
-        os.environ['MASTER_PORT'] = master_port
-        init_process_group(backend='nccl', rank=rank, world_size=world_size)
-
-    def destroy_ddp(self):
-        destroy_process_group()
-
-    def load_snapshot(self, snapshot_path: str) -> None:
-
-        file_format = os.splitext(os.basename(snapshot_path))[1]
-
-        if file_format in ("pt", "pth"):
-            config = torch.load(snapshot_path)
-
-            self.model = self.model.load_state_dict(config['model_state'])
-            self.max_epochs = config.get("max_epochs", None)
-            self.batch_size = config.get("batch_size", None)
-            self.optimizer = self.optimizer.load_state_dict(config['optimizer_state'])
-            self.lr_scheduler = self.lr_scheduler.load_state_dict(config['lr_scheduler_state'])
-        else:
-            raise NotImplementedError("Unsupported snapshot file type")
-           
-    def save_snapshot(self, epoch: int, loss: float) -> None:
-
-        model_path = os.path.join(
-            self.checkpoint_path, 
-            "model_epoch_%s.pth" % epoch
-        )
-
-        snapshot_config = {
-            'model_state': self.network.module.state_dict(),
-            'optimizer_state': self.optimizer.state_dict(),
-            'max_epochs': self.max_epochs,
-            'lr_scheduler': self.lr_scheduler,
-            'batch_size': self.batch_size,
-            'loss_function': self.loss_function,
-            'eval_metric': self.eval_metric,
-            'loss': loss
-        }
-
-        torch.save(
-            obj=snapshot_config, 
-            f=model_path
-        )
-
-    def prepare_loader(self, dataset: data.Dataset):
-        return data.DataLoader(
-            dataset=dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            pin_memory=True,
-            sampler=DistributedSampler(dataset=dataset)
-        )
-
-    def train(self, dataset: data.Dataset):
-
-        self.set_ddp(
-            master_addr=self._master_addr, 
-            master_port=self._master_port,
-            rank=self._process_rank,
-            world_size=self._process_world_size
-        )
-
-        loader = self.prepare_loader(dataset)
-        train_loss = float('inf')
-        
-        for epoch in range(self.max_epochs):
-            epoch_loss = 0
-
-            for images, boxes in loader:
-
-                predictions = self.network.forward(images)
-                loss = self.loss_function(predictions['boxes'], boxes)
-
-                loss.backward()
-                self.optimizer.step()
-            
-                epoch_loss += loss.item()
-
-            if epoch % self.save_every:
-                self.save_snapshot(epoch=epoch, loss=epoch_loss)
-                
-            train_loss = min(train_loss, epoch_loss)
-            
-        self.destroy_ddp()
-        return train_loss
-
-
