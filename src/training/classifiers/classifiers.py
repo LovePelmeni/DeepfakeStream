@@ -4,20 +4,19 @@ from src.training.classifiers import srm_conv
 from timm import models
 
 encoders = {
-    "efficientnet-b3": {
-        "cls": models.efficientnet.efficientnet_b3,
+    "efficientnet-b3-ns": {
+        "cls": models.efficientnet.tf_efficientnet_b3_ns,
         "features": 1280
     },
-    "efficientnet-b2": {
+    "efficientnet-b2-ns": {
         "cls": models.efficientnet.efficientnet_b2,
         "features": 1280,
     },
-    "efficientnet-b4": {
+    "efficientnet-b4-ns": {
         "cls": models.efficientnet.efficientnet_b1,
         "features": 1280
     }
 }
-
 class DeepfakeClassifier(nn.Module):
     """
     Deepfake classifier prototype
@@ -93,7 +92,7 @@ class DeepfakeClassifierSRM(nn.Module):
             stride=1,
             bias=False
         )
-        self.encoder = encoder
+        self.encoder = encoders[encoder]['cls']()
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.dropout1 = nn.Dropout()
@@ -216,4 +215,5 @@ class DeepfakeClassifierGWAP(nn.Module):
         output = self.dense2(output)
         probs = self.sigmoid(output)
         return probs
+
 
