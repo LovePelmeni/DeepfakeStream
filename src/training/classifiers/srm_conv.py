@@ -3,7 +3,7 @@ import torch
 import numpy
 
 
-class SRMConv(object):
+class SRMConv(nn.Module):
     """
     5x5 3-channel SRM Filter for Noise Analysis
     Paper for reference: https://www.cs.columbia.edu/~jrk/NSFgrants/videoaffinity/Interim/22x_Rohit.pdf
@@ -15,7 +15,8 @@ class SRMConv(object):
         of the layer, as it may lead to unexpected results
     """
     def __init__(self, in_channels: int):
-
+        super(SRMConv, self).__init__()
+        
         with torch.no_grad():
 
             self.conv = nn.Conv2d(

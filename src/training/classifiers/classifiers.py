@@ -95,20 +95,14 @@ class DeepfakeClassifierSRM(nn.Module):
     of SRM (Spatial Rich Model) Filters.
     """
     def __init__(self, input_channels: int, encoder_name: str):
-        super(DeepfakeClassifier, self).__init__()
+        super(DeepfakeClassifierSRM, self).__init__()
 
-        self.conv1 = nn.Conv2d(
-            in_channels=input_channels, 
-            out_channels=input_channels,
-            stride=1,
-            bias=False
-        )
+        self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.encoder = encoder_params[encoder_name]['encoder']
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
-        self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
-            in_features=1280, 
+            in_features=encoder_params[encoder_name]['encoder'], 
             out_features=128, 
             bias=True
         )
@@ -128,8 +122,7 @@ class DeepfakeClassifierSRM(nn.Module):
     
     def forward(self, input_map: torch.Tensor):
         noise = self.srm_conv(input_map)
-        output = self.conv1(noise)
-        output = self.encoder(output)
+        output = self.encoder(noise)
         output = self.avgpool1(output)
         output = self.dropout1(output)
         output = self.dense1(output)
