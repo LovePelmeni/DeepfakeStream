@@ -27,7 +27,6 @@ encoder_params = {
         "encoder": partial(tf_efficientnet_b5, pretrained=True, drop_path_rate=0.2)
     },
 }
-
 class DeepfakeClassifier(nn.Module):
     """
     Deepfake classifier prototype
@@ -54,7 +53,7 @@ class DeepfakeClassifier(nn.Module):
             out_channels=input_channels,
             bias=False
         ) 
-        self.encoder = encoder_params[encoder_name]['encoder']
+        self.encoder = encoder_params[encoder_name]['encoder']()
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
@@ -98,11 +97,11 @@ class DeepfakeClassifierSRM(nn.Module):
         super(DeepfakeClassifierSRM, self).__init__()
 
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
-        self.encoder = encoder_params[encoder_name]['encoder']
+        self.encoder = encoder_params[encoder_name]['encoder']()
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
-            in_features=encoder_params[encoder_name]['encoder'], 
+            in_features=encoder_params[encoder_name]['features'], 
             out_features=128, 
             bias=True
         )
@@ -174,7 +173,7 @@ class DeepfakeClassifierGWAP(nn.Module):
     def __init__(self, encoder_name: str):
         super(DeepfakeClassifierGWAP, self).__init__()
 
-        self.encoder = encoder_params[encoder_name]['encoder']
+        self.encoder = encoder_params[encoder_name]['encoder']()
 
         self.globalpool1 = GlobalWeightedAveragePooling(
             input_size=encoder_params[encoder_name]['features'],
