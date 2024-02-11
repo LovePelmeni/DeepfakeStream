@@ -38,10 +38,12 @@ class DeepfakeDataset(data.Dataset):
 
     def __init__(self,
         image_paths: typing.List[str],
-        image_labels: typing.List[typing.Union[str, int]]
+        image_labels: typing.List[typing.Union[str, int]],
+        data_type = torch.float32
     ):
         self.image_paths = image_paths
         self.image_labels = image_labels
+        self.data_type = data_type
 
     def __len__(self):
         return len(self.image_paths)
@@ -58,7 +60,7 @@ class DeepfakeDataset(data.Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         image = self.get_numpy_image(idx)
-        image = torch.from_numpy(image).float().permute(2, 0, 1)
+        image = torch.from_numpy(image).permute(2, 0, 1).to(self.data_type)
         return image
 
     def get_class(self, idx: int) -> typing.Union[str, int]:

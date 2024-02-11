@@ -2,31 +2,22 @@ from torch import nn
 import torch
 from src.training.classifiers import srm_conv
 from timm.models.efficientnet import (
-    tf_efficientnet_b3, 
-    tf_efficientnet_b2, 
-    tf_efficientnet_b4, 
-    tf_efficientnet_b5
+    tf_efficientnetv2_b3,
+    tf_efficientnetv2_b2,
 )
 from functools import partial 
 
 encoder_params = {
     "tf_efficientnet_b3": {
         "features": 1536,
-        "encoder": partial(tf_efficientnet_b3, pretrained=True, drop_path_rate=0.2)
+        "encoder": partial(tf_efficientnetv2_b3, pretrained=True, drop_path_rate=0.2)
     },
     "tf_efficientnet_b2": {
         "features": 1408,
-        "encoder": partial(tf_efficientnet_b2, pretrained=False, drop_path_rate=0.2)
-    },
-    "tf_efficientnet_b4": {
-        "features": 1792,
-        "encoder": partial(tf_efficientnet_b4, pretrained=True, drop_path_rate=0.5)
-    },
-    "tf_efficientnet_b5": {
-        "features": 2048,
-        "encoder": partial(tf_efficientnet_b5, pretrained=True, drop_path_rate=0.2)
-    },
+        "encoder": partial(tf_efficientnetv2_b2, pretrained=False, drop_path_rate=0.2)
+    }
 }
+
 class DeepfakeClassifier(nn.Module):
     """
     Deepfake classifier prototype
@@ -53,7 +44,7 @@ class DeepfakeClassifier(nn.Module):
             out_channels=input_channels,
             bias=False
         ) 
-        self.encoder = encoder_params[encoder_name]['encoder']()
+        self.encoder  = encoder_params[encoder_name]['encoder']()
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
@@ -77,7 +68,7 @@ class DeepfakeClassifier(nn.Module):
 
     def forward(self, input_map: torch.Tensor):
         output = self.conv1(input_map)
-        output = self.encoder(output)
+        output = self.encoder.forward_features(output)
         output = self.avgpool1(output).flatten(1)
         output = self.dropout1(output)
         output = self.dense1(output)
@@ -121,7 +112,7 @@ class DeepfakeClassifierSRM(nn.Module):
     
     def forward(self, input_map: torch.Tensor):
         noise = self.srm_conv(input_map)
-        output = self.encoder(noise)
+        output = self.encoder.forward_features(noise)
         output = self.avgpool1(output)
         output = self.dropout1(output)
         output = self.dense1(output)
@@ -209,7 +200,7 @@ class DeepfakeClassifierGWAP(nn.Module):
             (batch_size, channels, height, width), however, 
             you passed data with %s dimensions.""" % len(image.shape))
 
-        output = self.encoder(image)
+        output = self.encoder.forward_features(image)
         output = self.globalpool1(output)
         output = self.batchnorm1(output)
         output = self.dropout1(output)
