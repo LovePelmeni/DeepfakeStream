@@ -79,49 +79,55 @@ class DeepfakeClassifier(nn.Module):
         output_prob = self.sigmoid(output)
         return output_prob
 
+
 class DeepfakeClassifierSRM(nn.Module):
     """
     Version of deepfake classifier, based on concept
     of SRM (Spatial Rich Model) Filters.
     """
-    def __init__(self, input_channels: int, encoder_name: str):
+    def __init__(self, 
+        input_channels: int, 
+        encoder_name: str, 
+        num_classes: int,
+        dropout_rate: float = 0.5
+    ):
         super(DeepfakeClassifierSRM, self).__init__()
-
+        self.encoder_name = encoder_name
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.encoder = encoder_params[encoder_name]['encoder']()
-        self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout1 = nn.Dropout()
+        self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1)) # x x 1 x 1
+        self.dropout1 = nn.Dropout(p=dropout_rate)
         self.dense1 = nn.Linear(
             in_features=encoder_params[encoder_name]['features'], 
-            out_features=128, 
-            bias=True
+            out_features=64, 
+            bias=True,
         )
         self.relu1 = nn.ReLU()
         self.dense2 = nn.Linear(
-            in_features=128,
-            out_features=64, 
+            in_features=64,
+            out_features=32, 
             bias=True
         )
         self.relu2 = nn.ReLU()
         self.dense3 = nn.Linear(
-            in_features=64, 
-            out_features=1, 
+            in_features=32,
+            out_features=num_classes,
             bias=True
         )
-        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=1)
     
     def forward(self, input_map: torch.Tensor):
         noise = self.srm_conv(input_map)
         output = self.encoder.forward_features(noise)
-        output = self.avgpool1(output)
+        output = self.avgpool1(output).view(-1, encoder_params[self.encoder_name]['features'])
         output = self.dropout1(output)
         output = self.dense1(output)
         output = self.relu1(output)
         output = self.dense2(output)
         output = self.relu2(output)
         output = self.dense3(output)
-        output_prob = self.sigmoid(output)
-        return output_prob
+        output_probs = self.softmax(output)
+        return output_probs
 class GlobalWeightedAveragePooling(nn.Module):
     """
     Global weighted average pooling, which examinates
@@ -141,9 +147,9 @@ class GlobalWeightedAveragePooling(nn.Module):
         self.flatten = flatten
 
     def fscore(self, x):
-            m = self.conv(x)
-            m = m.sigmoid().exp()
-            return m
+        m = self.conv(x)
+        m = m.sigmoid().exp()
+        return m
 
     def norm(self, x: torch.Tensor):
         return x / x.sum(dim=[2, 3], keepdim=True)

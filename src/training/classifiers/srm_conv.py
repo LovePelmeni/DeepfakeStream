@@ -23,7 +23,7 @@ class SRMConv(nn.Module):
                 in_channels=in_channels, 
                 out_channels=1, 
                 kernel_size=5,
-                stride=1,
+                stride=(1, 1),
                 padding=2,
                 bias=False
             )
@@ -57,10 +57,4 @@ class SRMConv(nn.Module):
             )
 
     def forward(self, input_map: torch.Tensor):
-        output = self.conv(input_map)
-        return output
-
-
-
-
-
+        return self.conv(input_map.squeeze(0))
