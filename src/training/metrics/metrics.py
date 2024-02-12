@@ -10,17 +10,16 @@ for testing DeepFake detection algorithm during validation phase
 class F1Score(nn.Module):
 
     def forward(self,
-                predicted_values: numpy.ndarray,
-                actual_labels: numpy.ndarray,
-                smooth: float = 0.00001
-                ):
-        tp = len(predicted_values == actual_labels)
-        fp = len(predicted_values == 1 != actual_labels)
-        fn = len(predicted_values == 0 != actual_labels)
+        predicted_values: numpy.ndarray,
+        actual_labels: numpy.ndarray,
+        smooth: float = 0.00001
+    ):
+        tp = len(numpy.where(predicted_values == actual_labels)[0])
+        fp = len(numpy.where((predicted_values == 1) & (1 != actual_labels))[0])
+        fn = len(numpy.where((predicted_values == 0) & (0 != actual_labels))[0])
         precision = tp / (tp + fn)
         recall = tp / (tp + fp)
         return 2 * (precision * recall) / (precision + recall) + smooth
-
 class IOUScore(nn.Module):
     """
     Implementation of the intersection
