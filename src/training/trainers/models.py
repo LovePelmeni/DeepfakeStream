@@ -8,11 +8,10 @@ import random
 from tqdm import tqdm
 import gc
 import os
-from torch.utils.tensorboard import SummaryWriter
-
-from src.training.regularizations.regularization import EarlyStopping, LabelSmoothing
-from src.training.evaluators import sliced_evaluator
 from torch.utils.tensorboard.writer import SummaryWriter
+from src.training import regularizations as regularization
+from src.training.evaluators import sliced_evaluator
+import pathlib
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
@@ -22,6 +21,8 @@ formatter = logging.Formatter(
 handler.setFormatter(formatter)
 trainer_logger.setLevel(logging.WARN)
 trainer_logger.addHandler(handler)
+
+torch.autograd.set_detect_anomaly(True)
 
 class NetworkTrainer(object):
     """
@@ -62,7 +63,7 @@ class NetworkTrainer(object):
                  output_weights_dir: str,
                  log_dir: str,
                  save_every: int,
-                 lr_scheduler: nn.Module = None,
+                 scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
                  label_smoothing_eps: float = 0,
@@ -98,17 +99,17 @@ class NetworkTrainer(object):
         self.batch_size = batch_size
         self.optimizer = optimizer
 
-        self.lr_scheduler = lr_scheduler
+        self.lr_scheduler = scheduler
         self.train_device = train_device
 
         self.early_dataset = early_stop_dataset
         self.early_start = early_start
-        self.early_stopper = EarlyStopping(
+        self.early_stopper = regularization.EarlyStopping(
             patience=early_patience,
             min_diff=minimum_metric_difference
         )
 
-        self.label_smoother = LabelSmoothing(etta=label_smoothing_eps)
+        self.label_smoother = regularization.LabelSmoothing(etta=label_smoothing_eps)
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
@@ -116,46 +117,83 @@ class NetworkTrainer(object):
         self.loader_num_workers = loader_num_workers
         self.save_every = save_every
 
-        self.checkpoint_dir = checkpoint_dir
-        self.output_weights_dir = output_weights_dir
+        self.checkpoint_dir = pathlib.Path(checkpoint_dir)
+        self.output_weights_dir = pathlib.Path(output_weights_dir)
+        self.log_dir = pathlib.Path(log_dir)
 
         self.overall_writer = SummaryWriter(
             log_dir=log_dir, 
             max_queue=10
         )
 
-        self.network_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "network_params"), 
+        self.encoder_writer = SummaryWriter(
+            log_dir=os.path.join(log_dir, "encoder"), 
             max_queue=10
         )
 
-    def save_model(self, 
-        model_path: str,
-        test_input: torch.Tensor,
-        model_format: typing.Literal['pt', 'pth', 'onnx']
-    ):
-        test_input.requires_grad = False
-        if not len(test_input.shape) == 4:
-
-            raise ValueError(
-            msg='invalid tensor shape, should be 4, but got "%s"' 
-            % len(test_input.shape))
-
-        if model_format == "onnx":
-            torch.onnx.export(
-                model=self.network, 
-                args=test_input, 
-                training=False,
-                f=model_path
-            )
-        else:
-            torch.save(
-                obj=self.network.state_dict(), 
-                f=model_path
-            )
+        self.custom_net_writer = SummaryWriter(
+            log_dir=os.path.join(log_dir, "custom_network"), 
+            max_queue=10
+        )
+        # creating directories, in case some of them does not exist
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        os.makedirs(self.output_weights_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
         
+    def freeze_layers(self, layers):
+        """
+        Disables gradient flow 
+        from specific network layers.
+        
+        Parameters:
+        -----------
+            layers - network layers to freeze
+        """
+        for layer in layers:
+            for param in layer.parameters():
+                param.requires_grad = False
+                
+    def unfreeze_layers(self):
+        """
+        Unfreezes all layers of the network,
+        in case some of them was freezed.
+        """
+        for param in self.network.parameters():
+            param.requires_grad = True
     
-    def track_network_params(self, global_step: int):
+    def save_model(self, 
+        filename: str, 
+        test_input: torch.Tensor, 
+        format: typing.Literal['onnx', 'pth', 'pt']
+    ):
+        """
+        Saves network under specific format
+        and filename
+        
+        NOTE:
+            you should provide format without extension "." 
+            Example:
+                onnx, pth or pt 
+                
+            Not:
+                .onnx, .pth or .pt
+        """
+        model_path = os.path.join(
+            self.output_weights_dir,
+            filename + ".%s" % format
+        )
+
+        if format == 'onnx':
+            torch.onnx.format(self.network, test_input, model_path)
+
+        elif format in ('pt', 'pth'):
+            torch.jit.save(m=self.network, f=model_path)
+        else:
+            options = ["onnx", "pth", "pt"]
+            raise ValueError(
+            msg='invalid model saving format provided. Available options: %s' % options)
+
+    def track_network_params(self, writer: SummaryWriter, global_step: int):
         """
         Method for tracking 
         network weight distribution
@@ -172,7 +210,7 @@ class NetworkTrainer(object):
             elif 'bias' in param_name:
                 tag_name = 'biases'
 
-            self.network_writer.add_histogram(
+            writer.add_histogram(
                 tag="%s/%s" % (param_name, tag_name),
                 values=param.clone().cpu().data.numpy(),
                 global_step=global_step
@@ -213,9 +251,6 @@ class NetworkTrainer(object):
                 ]
 
         }
-        if self.lr_scheduler is not None:
-            snapshot['lr_scheduler_state'] = self.lr_scheduler.state_dict()
-
         torch.save(snapshot, f=checkpoint_path)
 
     def load_snapshot(self, snapshot_path: str) -> None:
@@ -243,7 +278,7 @@ class NetworkTrainer(object):
             for setting up the seed for reproducibility""")
 
         seed_generator = torch.Generator(device=self.train_device)
-        seed_generator.manual_seed(seed=worker_seed)
+        seed_generator.manual_seed()
         loader.worker_init_fn = self.seed_loader_worker
         loader.generator = seed_generator
         torch.backends.cudnn.deterministic = True
@@ -289,10 +324,7 @@ class NetworkTrainer(object):
                 loader=loader
             )
         else:
-            return self.get_reproducible_loader(
-                worker_seed=self.seed,
-                loader=loader
-            )
+            return loader
 
     def train(self, train_dataset: data.Dataset):
 
@@ -300,65 +332,53 @@ class NetworkTrainer(object):
 
         loader = self.prepare_loader(dataset=train_dataset)
         global_step = 0
-        best_loss = 0
+        best_loss = float('inf')
+        current_loss = float('inf')
+        best_eval_metric = 0
 
         for epoch in range(self.max_epochs):
 
-            epoch_loss = 0
+            epoch_loss = []
 
             for imgs, classes in tqdm(
                 iterable=loader,
-                desc='EPOCH %s, LOSS: %s, EVAL METRIC: %s ' % (
-                    str(epoch), str(best_loss), str(best_eval_metric))):
+                desc='EPOCH %s, BEST_LOSS: %s, CURR_LOSS: %s, EVAL METRIC: %s ' % (
+                    (epoch+1), best_loss, current_loss, best_eval_metric)):
 
-                predictions = self.network.forward(
+                probs = self.network.to(self.train_device).forward(
                     imgs.clone().detach().to(self.train_device))
-
-                softmax_probs = torch.softmax(predictions, dim=1)
+                
+                cpu_probs = probs.cpu()
 
                 # computing one hot distribution
-                one_hots = torch.zeros_like(softmax_probs)
+                one_hots = torch.zeros_like(cpu_probs)
                 
                 for idx, class_ in enumerate(classes):
-                    one_hots[idx][class_] = 1
+                    one_hots[idx][classes[idx]] = 1
 
                 smoothed_one_hots = torch.as_tensor(self.label_smoother(one_hots))
 
-                loss = self.loss_function(softmax_probs, smoothed_one_hots)
+                loss = self.loss_function(cpu_probs, smoothed_one_hots)
                 
-                epoch_loss += loss.item()
+                epoch_loss.append(loss.item())
 
-                # flushing cached predictions
-                predictions.zero_()
-
+                loss.backward()
+                self.optimizer.step()
+                
+                # flushing output cache
+                cpu_probs.zero_()
+                
                 # clearing up dynamic memory
                 gc.collect()
                 torch.cuda.empty_cache()
 
-                loss.backward()
-                self.optimizer.step()
-
                 # tracking distributions of network parameters
-                self.track_network_params(
-                    writer=self.encoder_writer, 
-                    global_step=global_step
-                )
-
-                self.track_network_params(
-                    writer=self.custom_net_writer, 
-                    global_step=global_step
-                )
-
                 global_step += 1
 
             # tracking training loss history
 
-            self.overall_writer.add_scalar(
-                tag='training loss',
-                scalar_value=numpy.mean(epoch_loss)
-            )
-
-            best_loss = min(best_loss, numpy.mean(best_loss))
+            best_loss = min(best_loss, numpy.mean(epoch_loss))
+            current_loss = numpy.mean(epoch_loss)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
@@ -368,19 +388,13 @@ class NetworkTrainer(object):
                 metric = self.evaluate(self.early_dataset)
                 best_eval_metric = max(metric, round(best_eval_metric, 3))
                 step = self.early_stopper.step(metric)
-
-                # tracking evaluation metric
-                self.overall_writer.add_scalar(
-                    tag='evaluation metric', 
-                    scalar_value=best_eval_metric,
-                    global_step=epoch
-                )
-
+                
                 if step:
                     break
 
             if (epoch + 1) % self.save_every == 0:
-                self.save_checkpoint(epoch_loss, epoch)
+                self.save_snapshot(epoch_loss, epoch)
+        return best_loss
 
     def evaluate(self, validation_dataset: data.Dataset, slicing=False):
 
@@ -396,7 +410,8 @@ class NetworkTrainer(object):
                 eval_metrics = evaluator.evaluate(self.early_dataset)
                 return eval_metrics
             else:
-                output_labels = torch.tensor([]).to(torch.uint8)
+                output_labels = numpy.array([]).astype(numpy.uint8)
+                output_classes = numpy.array([]).astype(numpy.uint8)
                 try:
                     loader = self.prepare_loader(dataset=validation_dataset)
                 except (ValueError) as val_err:
@@ -410,25 +425,24 @@ class NetworkTrainer(object):
 
                 for imgs, classes in tqdm(loader):
 
-                    predictions = self.network.forward(
-                        imgs.clone().detach().to(self.train_device)).cpu()
+                    probs = self.network.forward(
+                        imgs.clone().detach().to(self.train_device))
 
-                    softmax_probs = torch.softmax(predictions, dim=1)
+                    cpu_probs = probs.cpu()
+                    
                     pred_labels = torch.argmax(
-                        softmax_probs, dim=1, keepdim=False)
-                    binary_labels = torch.where(pred_labels == classes, 1, 0)
-
-                    predictions.zero_()
+                        cpu_probs, dim=1, keepdim=False)
+                
+                    output_labels = numpy.concatenate([output_labels, pred_labels])
+                    output_classes = numpy.concatenate([output_classes, classes])
+                    
+                    cpu_probs.zero_()
                     gc.collect()
-
-                    output_labels = torch.cat([output_labels, binary_labels])
 
                 # computing evaluation metric
 
                 metric = self.eval_metric(
                     output_labels,
-                    torch.ones_like(output_labels)
+                    output_classes
                 )
                 return metric
-
-
