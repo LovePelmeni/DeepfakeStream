@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-from torch.nn import functional
 import typing
+from pytorch_toolbelt.losses import BinaryFocalLoss
 
 class WeightedLoss(nn.Module):
     """
@@ -45,47 +45,24 @@ class WeightedLoss(nn.Module):
             total_loss += (loss * weight)
         return total_loss
 
-class FocalLoss(nn.Module):
-
+class FocalLoss(BinaryFocalLoss):
+    """
+    Binary Focal Loss function
+    """
     def __init__(self, 
-        num_classes: int,
-        weight_type: torch.dtype = torch.float32, 
-        gamma=2, 
-        weights: list = None
+        alpha=None,
+        gamma=2,
+        ignore_index=None,
+        reduction='mean',
+        normalized=False
     ):
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
-
-        if not weights:
-            weights = torch.ones(size=(num_classes))
-
-        weight_values = torch.as_tensor(weights).to(weight_type)
-        weight_classes = range(len(weights))
-
-        self.weights = {c:w for c, w in zip(weight_classes, weight_values)}
-
-    def forward(self, y_pred: torch.Tensor, y_true: torch.Tensor):
-        # Flatten the predictions and ground truth masks
-        
-        pred_labels = torch.argmax(y_pred.float(), dim=1, keepdim=False).to(torch.float32)
-        label_weights = torch.as_tensor([self.weights[label.item()] for label in pred_labels])
-        pred_probs = torch.amax(y_pred.float(), 1, False).to(torch.float32)
-
-        # Calculate binary cross-entropy loss
-        bce_loss = functional.binary_cross_entropy_with_logits(
-            input=pred_probs, target=y_true.float(), 
-            pos_weight=label_weights,
-            reduction='none'
+        super(FocalLoss, self).__init__(
+            alpha=alpha, 
+            gamma=gamma, 
+            reduction=reduction, 
+            ignore_index=ignore_index,
+            normalized=normalized
         )
-
-        # Calculate focal loss
-        focal_loss = (1 - torch.exp(-bce_loss)) ** self.gamma * bce_loss
-
-        # Calculate mean over all elements
-        mean_loss = torch.mean(focal_loss)
-
-        return mean_loss
-
 class CIOULoss(nn.Module):
     """
     Complete Intersection-Over-Union
