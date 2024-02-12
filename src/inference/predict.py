@@ -66,16 +66,16 @@ class InferenceModel(object):
         device_faces = torch.stack(cropped_faces).to(self.inference_device)
         predicted_probs = self._deepfake_classifier.forward(inputs=device_faces).cpu()
         
-        pred_faces_probs = torch.argmax(predicted_probs, dim=1, keepdim=False)
-        pred_faces_labels = numpy.where(predicted_probs >= 0.5, 1, 0)
+        pred_faces_probs = torch.argmax(predicted_probs, dim=1, keepdim=True)
+
         output_preds = []
 
-        for face_idx in range(len(device_faces)):
+        for idx in range(len(pred_faces_probs)):
             output_preds.append(
                 {
-                    'face_coords': cropped_faces[face_idx],
-                    'label': pred_faces_labels[face_idx],
-                    'probability': pred_faces_probs[face_idx]
+                    'face_coords': face_boxes[idx],
+                    'fake_prob': pred_faces_probs[idx][1],
+                    'real_prob': pred_faces_probs[idx][0],
                 }
             )
 
