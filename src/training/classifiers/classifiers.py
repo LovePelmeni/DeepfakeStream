@@ -4,8 +4,11 @@ from src.training.classifiers import srm_conv
 from timm.models.efficientnet import (
     tf_efficientnetv2_b3,
     tf_efficientnetv2_b2,
+    _cfg
 )
 from functools import partial 
+import typing
+
 
 encoder_params = {
     "tf_efficientnet_b3": {
@@ -89,12 +92,24 @@ class DeepfakeClassifierSRM(nn.Module):
         input_channels: int, 
         encoder_name: str, 
         num_classes: int,
+        encoder_pretrained_config: typing.Dict = None,
         dropout_rate: float = 0.5
     ):
         super(DeepfakeClassifierSRM, self).__init__()
+
+        # preping custom configuration for the EfficientNet encoder, in case presented
+        if encoder_pretrained_config is not None:
+            pretrained_cfg = _cfg(
+                url=encoder_pretrained_config.get("url", ''),
+                input_size=encoder_pretrained_config.get("encoder_input_image_size"),
+                file=encoder_pretrained_config.get("encoder_weights_path")
+            )
+        else:
+            pretrained_cfg = None
+
         self.encoder_name = encoder_name
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
-        self.encoder = encoder_params[encoder_name]['encoder']()
+        self.encoder = encoder_params[encoder_name]['encoder'](pretrained_cfg=_cfg(pretrained_cfg))
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1)) # x x 1 x 1
         self.dropout1 = nn.Dropout(p=dropout_rate)
         self.dense1 = nn.Linear(
