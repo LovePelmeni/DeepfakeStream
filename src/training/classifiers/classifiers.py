@@ -27,7 +27,7 @@ class DeepfakeClassifier(nn.Module):
     Parameters:
     -----------
         input_channels: depth of the input image (either 1 or 3)
-        encoder - (nn.Module) EfficientNet-like encoder network
+        encoder_name - (nn.Module) EfficientNet-like encoder network
     
     NOTE:
         Encoder network should output nxmx1280 feature vector
@@ -166,6 +166,11 @@ class DeepfakeClassifierGWAP(nn.Module):
     Implementation of the Deepfake classifier
     with usage of Global Weighted Average Pooling layer,
     instead of standard avg pool.
+
+    Parameters:
+    -----------
+        encoder_name - name of the encoder CNN-based 
+        network from 'encoder_params'
     """
     def __init__(self, encoder_name: str):
         super(DeepfakeClassifierGWAP, self).__init__()
@@ -200,7 +205,7 @@ class DeepfakeClassifierGWAP(nn.Module):
         self.sigmoid = nn.Sigmoid()
     
     def forward(self, image: torch.Tensor):
-
+        
         if not len(image.shape) == 4:
             raise ValueError("""input should have 4 dimensions: 
             (batch_size, channels, height, width), however, 
