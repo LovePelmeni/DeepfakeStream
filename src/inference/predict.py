@@ -43,15 +43,23 @@ class InferenceModel(object):
             min_face_size=min_face_size,
             inf_device=cls._inference_device
         )
-        configuration_file = torch.load(f=net_weights_path)
+        try:
+            network_config = torch.load(f=net_weights_path)
 
-        cls._deepfake_classifier = classifiers.DeepfakeClassifierSRM(
-            input_channels=input_channels,
-            encoder_name=encoder_name,
-            num_classes=2
-        ).load_state_dict(
-            state_dict=configuration_file['network']
-        )
+            cls._deepfake_classifier = classifiers.DeepfakeClassifierSRM(
+                input_channels=input_channels,
+                encoder_name=encoder_name,
+                num_classes=2
+            ).load_state_dict(
+                state_dict=network_config['network']
+            )
+        except(FileNotFoundError):
+            raise SystemExit("invalid path. failed to load network weights")
+        
+        except(KeyError):
+            raise SystemExit("""failed to load network from configuration file. 
+            'network' key does not exist in the config.""")
+
         return cls()
 
     def predict(self, input_img: numpy.ndarray):
