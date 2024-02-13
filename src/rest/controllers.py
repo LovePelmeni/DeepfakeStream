@@ -39,15 +39,17 @@ async def predict_human_deepfake(request: Request):
                 fp=base64.b64decode(s=img_bytes_string)
             )
         )
-        output_label = model.predict(input_img=img)
+        # predicting deepfakes 
+        predictions = model.predict(input_img=img)
+        
         return fastapi.responses.Response(
-            status_code=201, content={
-                "label": output_label
+            status_code=201, 
+            content={
+                'predictions': predictions
             }
         )
 
     except(fastapi.exceptions.HTTPException) as val_err:
-        logger.error("model prediction failed")
         logger.error(val_err)
         return fastapi.responses.JSONResponse(
             status_code=400, 
