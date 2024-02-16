@@ -1,16 +1,18 @@
 import logging
 from PIL import Image
-import fastapi.responses 
-import fastapi.exceptions 
+from fastapi import (
+    responses,
+    exceptions
+)
 from fastapi import Request
 from src.inference import predict
 
 import os
 import numpy
 import base64
+
 from src.monitoring import (
-    server_monitoring,
-    online_metrics_monitoring
+    server_monitoring
 )
 
 logger = logging.getLogger("controller_logger")
@@ -23,7 +25,14 @@ logger.addHandler(logger)
 # Loading inference model pipeline from configuration file
 
 try:
-    config_path = os.environ.get("INFERENCE_CONFIG_PATH")
+    config_path = os.environ.get("INFERENCE_CONFIG_PATH", None)
+    print(config_path)
+    if config_path is None:
+        raise SystemExit("""
+        Inference config not found. 
+        Set 'INFERENCE_CONFIG_PATH' environment variable. 
+        Specify path to configuration file, containing inference configuration.""")
+
     model = predict.InferenceModel.from_config(config_path=config_path)
 
 except(FileNotFoundError) as err:
@@ -46,34 +55,27 @@ async def predict_human_deepfake(request: Request):
         # predicting deepfakes 
         predictions = model.predict(input_img=img)
         
-        return fastapi.responses.Response(
+        return responses.Response(
             status_code=201, 
             content={
                 'predictions': predictions
             }
         )
 
-    except(fastapi.exceptions.HTTPException) as val_err:
+    except(exceptions.HTTPException) as val_err:
         logger.error(val_err)
-        return fastapi.responses.JSONResponse(
+        return responses.JSONResponse(
             status_code=400, 
             content={'error': 'Prediction Failed'}
         )
 
 async def healthcheck():
-    return fastapi.responses.Response(status_code=200)
+    return responses.Response(status_code=200)
 
 async def parse_system_metrics():
     
     metrics_content = server_monitoring.parse_server_info()
-    return fastapi.responses.Response(
-        status_code=200,
-        content=metrics_content
-    )
-
-async def parse_online_metrics():
-    metrics_content = online_metrics_monitoring.parse_online_metrics_info()
-    return fastapi.responses.Response(
+    return responses.Response(
         status_code=200,
         content=metrics_content
     )

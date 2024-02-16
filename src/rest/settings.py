@@ -3,8 +3,7 @@ import os
 import logging 
 from src.rest.controllers import (
     predict_human_deepfake, 
-    healthcheck, 
-    parse_online_metrics, 
+    healthcheck,
     parse_system_metrics
 )
 from fastapi.middleware import cors
@@ -40,11 +39,6 @@ try:
         path='/healthcheck/',
         endpoint=healthcheck,
         methods=['GET']
-    )
-    application.add_api_route(
-        path="parse/online/metrics",
-        endpoint=parse_online_metrics,
-        methods=["GET"]
     )
     application.add_api_route(
         path="/parse/system/metrics/", 
