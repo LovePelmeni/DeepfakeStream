@@ -1,7 +1,12 @@
 import fastapi 
 import os 
 import logging 
-from rest.controllers import predict_human_deepfake, healthcheck
+from src.rest.controllers import (
+    predict_human_deepfake, 
+    healthcheck, 
+    parse_online_metrics, 
+    parse_system_metrics
+)
 from fastapi.middleware import cors
 
 logger = logging.getLogger("startup_logger")
@@ -36,6 +41,17 @@ try:
         endpoint=healthcheck,
         methods=['GET']
     )
+    application.add_api_route(
+        path="parse/online/metrics",
+        endpoint=parse_online_metrics,
+        methods=["GET"]
+    )
+    application.add_api_route(
+        path="/parse/system/metrics/", 
+        endpoint=parse_system_metrics,
+        methods=["GET"],
+    )
+
 except(Exception) as err:
     logger.fatal("failed to start ASGI Server application")
     raise SystemExit("Failed to start application, check logs.")

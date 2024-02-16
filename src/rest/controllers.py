@@ -8,6 +8,10 @@ from src.inference import predict
 import os
 import numpy
 import base64
+from src.monitoring import (
+    server_monitoring,
+    online_metrics_monitoring
+)
 
 logger = logging.getLogger("controller_logger")
 file_handler = logging.FileHandler(filename="controller_logger.log")
@@ -39,15 +43,17 @@ async def predict_human_deepfake(request: Request):
                 fp=base64.b64decode(s=img_bytes_string)
             )
         )
-        output_label = model.predict(input_img=img)
+        # predicting deepfakes 
+        predictions = model.predict(input_img=img)
+        
         return fastapi.responses.Response(
-            status_code=201, content={
-                "label": output_label
+            status_code=201, 
+            content={
+                'predictions': predictions
             }
         )
 
     except(fastapi.exceptions.HTTPException) as val_err:
-        logger.error("model prediction failed")
         logger.error(val_err)
         return fastapi.responses.JSONResponse(
             status_code=400, 
@@ -56,3 +62,18 @@ async def predict_human_deepfake(request: Request):
 
 async def healthcheck():
     return fastapi.responses.Response(status_code=200)
+
+async def parse_system_metrics():
+    
+    metrics_content = server_monitoring.parse_server_info()
+    return fastapi.responses.Response(
+        status_code=200,
+        content=metrics_content
+    )
+
+async def parse_online_metrics():
+    metrics_content = online_metrics_monitoring.parse_online_metrics_info()
+    return fastapi.responses.Response(
+        status_code=200,
+        content=metrics_content
+    )
