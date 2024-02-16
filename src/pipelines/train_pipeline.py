@@ -10,7 +10,7 @@ import logging
 import sys
 
 from torch.utils.tensorboard.writer import SummaryWriter
-import src.pipelines.train_utils as utils
+import src.pipelines.utils as utils
 
 from src.training.trainers import models
 
