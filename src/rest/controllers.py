@@ -10,7 +10,7 @@ import numpy
 import base64
 from src.monitoring import (
     server_monitoring,
-    online_metrics_monitoring 
+    online_metrics_monitoring
 )
 
 logger = logging.getLogger("controller_logger")
