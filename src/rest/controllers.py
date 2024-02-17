@@ -31,8 +31,12 @@ except(FileNotFoundError) as err:
 
 async def predict_human_deepfake(request: Request):
     """
-    Controller for predicting human deepfake,
-    based on the showed photo
+    Accepts image, containing human faces and predicts the probability
+    of each human face, being a deepfake
+    
+    Parameters:
+    ----------
+        - "image_hash" - base64 encoded string, whichs represents image
     """
     try:
         img_bytes_string = (await request.form()).get("image_hash")
@@ -61,10 +65,21 @@ async def predict_human_deepfake(request: Request):
         )
 
 async def healthcheck():
+<<<<<<< Updated upstream
     return fastapi.responses.Response(status_code=200)
+=======
+    """
+    Returns 200OK if server is up and running,
+    otherwise bad code.
+    """
+    return responses.Response(status_code=200)
+>>>>>>> Stashed changes
 
 async def parse_system_metrics():
-    
+    """
+    Returns set of information about
+    health of the overall system.
+    """
     metrics_content = server_monitoring.parse_server_info()
     return fastapi.responses.Response(
         status_code=200,
