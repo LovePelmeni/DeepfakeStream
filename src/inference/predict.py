@@ -4,7 +4,14 @@ import torch
 import pathlib
 import json
 import cv2
-from src.training.classifiers import classifiers
+import glob
+import os
+import logging
+import onnxruntime 
+
+logger = logging.getLogger("model_loading_logger")
+handler = logging.FileHandler(filename="model_loading_logs.log")
+logger.addHandler(handler)
 
 class InferenceModel(object):
 
@@ -13,45 +20,67 @@ class InferenceModel(object):
 
         try:
             config_dir = pathlib.Path(config_path)
-            img_config = json.load(fp=config_dir)
+            inf_config = json.load(fp=open(config_dir, mode='r'))
 
-        except(FileNotFoundError):
+        except(FileNotFoundError) as err:
+            logger.error(err)
             raise RuntimeError("invalid inference configuration file path")
 
-        try:
-            input_image_size = img_config.get("input_image_size")
-            input_channels = img_config.get("input_image_channels")
-            encoder_image_size = img_config.get("encoder_image_size")
+        except(UnicodeDecodeError, json.decoder.JSONDecodeError) as dec_err:
+            logger.error(dec_err)
+            raise RuntimeError("Failed to parse inference configuration file.")
 
-            min_face_size = img_config.get("min_face_size", 160)
-            inference_device = img_config.get("inference_device", "cpu")
-            encoder_name = img_config.get("encoder_name")
+        try:
+            encoder_image_size = inf_config.get("encoder_image_size") # image size, acceptable by the encoder
+            min_face_size = inf_config.get("min_face_size", 160) # minimum size of the face to detect
+            face_margin_size = inf_config.get("face_margin_size", 0) # margin to apply to face crop after 
+            inference_device = inf_config.get("inference_device", "cpu") # device for network inferencing
+            net_state_path = pathlib.Path(inf_config.get("network_weights_path")) # path to the network weights
 
         except(KeyError):
             raise RuntimeError("missing on key parameters")
 
-        cls._input_image_size = input_image_size
-        cls._encoder_image_size = encoder_image_size
+        cls._encoder_image_size: int = int(encoder_image_size)
         cls._inference_device = torch.device(inference_device)
 
         cls._face_detector = face_detector.MTCNNFaceDetector(
-            image_size=input_image_size,
             use_landmarks=False,
             keep_all_pred_faces=False,
             min_face_size=min_face_size,
-            inf_device=cls._inference_device
+            inf_device=cls._inference_device,
+            margin=face_margin_size # size in pixels
         )
-        cls._deepfake_classifier = classifiers.DeepfakeClassifierSRM(
-            input_channels=input_channels,
-            encoder=classifiers.encoder_params[encoder_name]['encoder']
-        )
+        
+        try:
+            state_name = os.path.basename(net_state_path)
+            parent_dir = net_state_path.parent
+
+            network_state_path = glob.glob(
+                pathname="**/%s" % os.path.join(parent_dir.suffix, state_name),
+                root_dir="weights"
+            )
+            
+            if not len(network_state_path):
+                raise FileNotFoundError
+
+            net_path = os.path.join("weights", network_state_path[-1])
+            cls.classifier_session = onnxruntime.InferenceSession(path_or_bytes=net_path)
+            cls.inputs = cls.classifier_session.get_inputs()
+            cls.run_options = onnxruntime.RunOptions()
+
+        except(FileNotFoundError):
+            raise SystemExit("invalid path. failed to load network weights")
+        
+        except(KeyError) as err:
+            raise err
+
         return cls()
 
     def predict(self, input_img: numpy.ndarray):
 
         resized_img = cv2.resize(
             input_img, 
-            (self._input_image_size, self._input_image_size), 
+            (self._encoder_image_size, self._encoder_image_size), 
             cv2.INTER_LINEAR 
         )
 
@@ -63,8 +92,18 @@ class InferenceModel(object):
              for f in face_boxes
         ]
 
-        device_faces = torch.stack(cropped_faces).to(self.inference_device)
-        predicted_probs = self._deepfake_classifier.forward(inputs=device_faces).cpu()
+        device_faces = [face.to(self.inference_device) for face in cropped_faces]
+
+        inputs = {
+            self.inputs[idx].name: device_faces[idx]
+            for idx in range(len(self.inputs))
+        }
+
+        predicted_probs = self.classifier_session.run(
+            output_names=None, 
+            input_feed=inputs,
+            run_options=self.run_options
+        )
         
         pred_faces_probs = torch.argmax(predicted_probs, dim=1, keepdim=False)
         pred_faces_labels = numpy.where(predicted_probs >= 0.5, 1, 0)
