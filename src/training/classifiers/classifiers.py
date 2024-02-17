@@ -86,12 +86,46 @@ class DeepfakeClassifierSRM(nn.Module):
     of SRM (Spatial Rich Model) Filters.
     """
     def __init__(self, 
+<<<<<<< Updated upstream
         input_channels: int, 
         encoder_name: str, 
         num_classes: int,
         dropout_rate: float = 0.5
     ):
         super(DeepfakeClassifierSRM, self).__init__()
+<<<<<<< Updated upstream
+=======
+<<<<<<< Updated upstream
+=======
+=======
+        input_channels: int = 3, 
+        encoder_name: str = list(encoder_params.keys())[-1], 
+        num_classes: int = 2,
+        encoder_pretrained_config: typing.Dict = None,
+        dropout_rate: float = 0.5
+    ):
+        super(DeepfakeClassifierSRM, self).__init__()
+>>>>>>> Stashed changes
+
+        # preping custom configuration for the EfficientNet encoder, in case presented
+        if encoder_pretrained_config is not None:
+            pretrained_cfg = _cfg(
+                url=encoder_pretrained_config.get("url", ''),
+                input_size=encoder_pretrained_config.get("encoder_input_image_size"),
+<<<<<<< Updated upstream
+                file=encoder_pretrained_config.get("encoder_weights_path")
+=======
+                file=encoder_pretrained_config.get("encoder_weights_path", None)
+>>>>>>> Stashed changes
+            )
+        else:
+            pretrained_cfg = None
+
+<<<<<<< Updated upstream
+=======
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
         self.encoder_name = encoder_name
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
         self.encoder = encoder_params[encoder_name]['encoder']()
@@ -115,7 +149,7 @@ class DeepfakeClassifierSRM(nn.Module):
             bias=True
         )
         self.softmax = nn.Softmax(dim=1)
-    
+
     def forward(self, input_map: torch.Tensor):
         noise = self.srm_conv(input_map)
         output = self.encoder.forward_features(noise)
