@@ -1,3 +1,5 @@
+from calendar import c
+from re import S
 import numpy 
 from src.preprocessing import face_detector
 import torch
@@ -64,11 +66,13 @@ class InferenceModel(object):
                 raise FileNotFoundError
 
             net_path = os.path.join("weights", network_state_path[-1])
+            
             cls.classifier_session = onnxruntime.InferenceSession(path_or_bytes=net_path)
             cls.inputs = cls.classifier_session.get_inputs()
             cls.run_options = onnxruntime.RunOptions()
 
-        except(FileNotFoundError):
+        except(FileNotFoundError) as err:
+            logger.error(err)
             raise SystemExit("invalid path. failed to load network weights")
         
         except(KeyError) as err:
@@ -78,50 +82,64 @@ class InferenceModel(object):
 
     def predict(self, input_img: numpy.ndarray):
 
-        resized_img = cv2.resize(
-            input_img, 
-            (self._encoder_image_size, self._encoder_image_size), 
-            cv2.INTER_LINEAR 
-        )
+        face_boxes, _ = self._face_detector.detect_faces(input_img)
 
-        face_boxes = numpy.asarray(self._face_detector.detect_faces(resized_img))
-        face_boxes = numpy.round(face_boxes, decimals=0).astype(numpy.uint8)
+        if len(face_boxes) == 0:
+            return {}
 
+        height, width = input_img.shape[:-1]
+    
         cropped_faces = [
-            torch.from_numpy(resized_img[f[0]:f[1], f[2]:f[3]]).permute(2, 0, 1)
-             for f in face_boxes
+            input_img[
+                min(max(round(f[1]),0),height):min(max(round(f[3]),0),height), 
+                min(max(round(f[0]), 0),width):min(max(round(f[2]), 0),width)
+            ]
+            for f in face_boxes
         ]
 
-        device_faces = [face.to(self.inference_device) for face in cropped_faces]
+        resized_faces = [
+            cv2.resize(input_face, 
+            (self._encoder_image_size, self._encoder_image_size),
+            cv2.INTER_LINEAR)
+            for input_face in cropped_faces
+        ]
 
-        inputs = {
-            self.inputs[idx].name: device_faces[idx]
-            for idx in range(len(self.inputs))
-        }
+        device_faces = [
+            torch.from_numpy(face).permute(2, 0, 1).float().unsqueeze(0).to(self._inference_device)
+            for face in resized_faces
+        ]
 
-        predicted_probs = self.classifier_session.run(
-            output_names=None, 
-            input_feed=inputs,
-            run_options=self.run_options
-        )
+        input_names = self.classifier_session.get_inputs()
+
+        predicted_probs = []
+
+        for face in range(len(device_faces)):
+            
+            sample_probs = self.classifier_session.run(
+                output_names=None, 
+                input_feed={input_names[0].name: device_faces[face].numpy()}
+            )
+
+            predicted_probs.extend(sample_probs[-1].tolist())
         
-        pred_faces_probs = torch.argmax(predicted_probs, dim=1, keepdim=False)
-        pred_faces_labels = numpy.where(predicted_probs >= 0.5, 1, 0)
+        pred_faces_probs = numpy.amax(predicted_probs, axis=1, keepdims=False)
+        pred_faces_labels = numpy.where(pred_faces_probs >= 0.5, 1, 0)
+
         output_preds = []
 
         for face_idx in range(len(device_faces)):
             output_preds.append(
                 {
-                    'face_coords': cropped_faces[face_idx],
-                    'label': pred_faces_labels[face_idx],
+                    'face_coords': face_boxes[face_idx],
+                    'label': int(pred_faces_labels[face_idx]),
                     'probability': pred_faces_probs[face_idx]
                 }
             )
 
         del cropped_faces 
         del device_faces
-        del faces 
-        del resized_img 
+        del resized_faces
+        del input_img
 
         return output_preds
         
