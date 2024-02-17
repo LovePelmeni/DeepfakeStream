@@ -1,0 +1,9 @@
+{
+    "min_face_size": 160,
+    "input_image_channels": 3,
+    "encoder_name": "efficientnet-b1",
+    "encoder_image_size": 380,
+    "inference_device": "cpu",
+    "network_weights_path": "weights/experiment1/model_weights.onnx",
+    "face_margin_size": 50
+}
