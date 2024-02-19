@@ -1,3 +1,4 @@
+from this import d
 import torch
 from torch import nn
 import typing
@@ -121,20 +122,11 @@ class NetworkTrainer(object):
         self.output_weights_dir = pathlib.Path(output_weights_dir)
         self.log_dir = pathlib.Path(log_dir)
 
-        self.overall_writer = SummaryWriter(
-            log_dir=log_dir, 
+        self.network_writer = SummaryWriter( # logging dir should preferably contain (name of the experiment,version,timestamp)
+            log_dir=os.path.join(log_dir, "network_params"), 
             max_queue=10
         )
 
-        self.encoder_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "encoder"), 
-            max_queue=10
-        )
-
-        self.custom_net_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "custom_network"), 
-            max_queue=10
-        )
         # creating directories, in case some of them does not exist
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.output_weights_dir, exist_ok=True)
@@ -203,19 +195,21 @@ class NetworkTrainer(object):
             global_step - (int) - number of batches run previously
         """
         for param_name, param in self.network.named_parameters():
-            
-            if 'weight' in param_name:
-                tag_name = 'weights'
 
-            elif 'bias' in param_name:
-                tag_name = 'biases'
+            if (param.requires_grad == True):
 
-            writer.add_histogram(
-                tag="%s/%s" % (param_name, tag_name),
-                values=param.clone().cpu().data.numpy(),
-                global_step=global_step
-            )
-        
+                if ('weight' in param_name):
+                    tag_name = 'weights'
+
+                elif ('bias' in param_name):
+                    tag_name = 'biases'
+
+                writer.add_histogram(
+                    tag="%s/%s" % (param_name, tag_name),
+                    values=param.clone().cpu().data.numpy(),
+                    global_step=global_step
+                )
+
     @staticmethod
     def seed_loader_worker(worker_id: int):
         worker_seed = torch.initial_seed() % 2 ** 32
@@ -394,6 +388,12 @@ class NetworkTrainer(object):
 
             if (epoch + 1) % self.save_every == 0:
                 self.save_snapshot(epoch_loss, epoch)
+
+            # saving tracked information to tensorboard logs directory
+            self.track_network_params(
+                writer=self.network_writer, 
+                global_step=global_step
+            )
         return best_loss
 
     def evaluate(self, validation_dataset: data.Dataset, slicing=False):
