@@ -21,11 +21,11 @@ def get_train_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Compose
                 quality_upper=100,
                 compression_type=0
             ),
-            albumentations.GaussNoise(p=0.1) ,
-            albumentations.GaussianBlur(p=0.05) ,
+            albumentations.GaussNoise(p=0.1),
+            albumentations.GaussianBlur(p=0.05),
             albumentations.RandomGamma(p=0.5),
             albumentations.HorizontalFlip(p=0.5),
-            
+
             albumentations.OneOf(
                 transforms=[
                     albumentations.RandomBrightnessContrast(),
@@ -50,8 +50,7 @@ def get_train_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Compose
                         interpolation_up=cv2.INTER_LINEAR,
                         target_size=CROP_IMAGE_SIZE
                     ),
-                ]
-            , p=1),
+                ], p=1),
         ]
     )
 

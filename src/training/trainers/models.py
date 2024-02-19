@@ -24,6 +24,7 @@ trainer_logger.addHandler(handler)
 
 torch.autograd.set_detect_anomaly(True)
 
+
 class NetworkTrainer(object):
     """
     Pipeline class, used for training 
@@ -75,17 +76,17 @@ class NetworkTrainer(object):
         if distributed:
 
             device_ids = [
-                int(cuda_id) for cuda_id 
+                int(cuda_id) for cuda_id
                 in train_device.split(":")[-1].split(",")
             ]
 
-            if not len(device_ids): 
+            if not len(device_ids):
                 raise ValueError("""invalid device name 
                 for distributed training, shoule be in a format: 'cuda:x,y,z', 
                 however, got: '%s'""" % train_device)
 
             self.network = nn.parallel.DistributedDataParallel(
-                module=network, 
+                module=network,
                 device_ids=device_ids
             )
 
@@ -109,7 +110,8 @@ class NetworkTrainer(object):
             min_diff=minimum_metric_difference
         )
 
-        self.label_smoother = regularization.LabelSmoothing(etta=label_smoothing_eps)
+        self.label_smoother = regularization.LabelSmoothing(
+            etta=label_smoothing_eps)
 
         self.loss_function = loss_function
         self.eval_metric = eval_metric
@@ -121,30 +123,21 @@ class NetworkTrainer(object):
         self.output_weights_dir = pathlib.Path(output_weights_dir)
         self.log_dir = pathlib.Path(log_dir)
 
-        self.overall_writer = SummaryWriter(
-            log_dir=log_dir, 
+        self.network_writer = SummaryWriter(  # logging dir should preferably contain (name of the experiment,version,timestamp)
+            log_dir=os.path.join(log_dir, "network_params"),
             max_queue=10
         )
 
-        self.encoder_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "encoder"), 
-            max_queue=10
-        )
-
-        self.custom_net_writer = SummaryWriter(
-            log_dir=os.path.join(log_dir, "custom_network"), 
-            max_queue=10
-        )
         # creating directories, in case some of them does not exist
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.output_weights_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
-        
+
     def freeze_layers(self, layers):
         """
         Disables gradient flow 
         from specific network layers.
-        
+
         Parameters:
         -----------
             layers - network layers to freeze
@@ -152,7 +145,7 @@ class NetworkTrainer(object):
         for layer in layers:
             for param in layer.parameters():
                 param.requires_grad = False
-                
+
     def unfreeze_layers(self):
         """
         Unfreezes all layers of the network,
@@ -160,21 +153,21 @@ class NetworkTrainer(object):
         """
         for param in self.network.parameters():
             param.requires_grad = True
-    
-    def save_model(self, 
-        filename: str, 
-        test_input: torch.Tensor, 
-        format: typing.Literal['onnx', 'pth', 'pt']
-    ):
+
+    def save_model(self,
+                   filename: str,
+                   test_input: torch.Tensor,
+                   format: typing.Literal['onnx', 'pth', 'pt']
+                   ):
         """
         Saves network under specific format
         and filename
-        
+
         NOTE:
             you should provide format without extension "." 
             Example:
                 onnx, pth or pt 
-                
+
             Not:
                 .onnx, .pth or .pt
         """
@@ -191,7 +184,7 @@ class NetworkTrainer(object):
         else:
             options = ["onnx", "pth", "pt"]
             raise ValueError(
-            msg='invalid model saving format provided. Available options: %s' % options)
+                msg='invalid model saving format provided. Available options: %s' % options)
 
     def track_network_params(self, writer: SummaryWriter, global_step: int):
         """
@@ -203,19 +196,21 @@ class NetworkTrainer(object):
             global_step - (int) - number of batches run previously
         """
         for param_name, param in self.network.named_parameters():
-            
-            if 'weight' in param_name:
-                tag_name = 'weights'
 
-            elif 'bias' in param_name:
-                tag_name = 'biases'
+            if (param.requires_grad == True):
 
-            writer.add_histogram(
-                tag="%s/%s" % (param_name, tag_name),
-                values=param.clone().cpu().data.numpy(),
-                global_step=global_step
-            )
-        
+                if ('weight' in param_name):
+                    tag_name = 'weights'
+
+                elif ('bias' in param_name):
+                    tag_name = 'biases'
+
+                writer.add_histogram(
+                    tag="%s/%s" % (param_name, tag_name),
+                    values=param.clone().cpu().data.numpy(),
+                    global_step=global_step
+                )
+
     @staticmethod
     def seed_loader_worker(worker_id: int):
         worker_seed = torch.initial_seed() % 2 ** 32
@@ -223,32 +218,32 @@ class NetworkTrainer(object):
         random.seed(worker_seed)
 
     def save_snapshot(self,
-                        loss: float,
-                        epoch: int
-                        ):
+                      loss: float,
+                      epoch: int
+                      ):
         checkpoint_path = os.path.join(
             self.checkpoint_dir,
             "checkpoint_epoch_%s.pth" % str(epoch)
         )
 
         snapshot = {
-                'network_state': self.network.cpu().state_dict(),
-                'optimizer_state': self.optimizer.state_dict(),
-                'lr_scheduler_state': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
-                'batch_size': self.batch_size,
-                'loss': loss,
-                'epoch': epoch,
-                'train_device': self.train_device,
-                'gpus_utilized': torch.cuda.device_count() if self.train_device == 'cuda' else 0,
+            'network_state': self.network.cpu().state_dict(),
+            'optimizer_state': self.optimizer.state_dict(),
+            'lr_scheduler_state': self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None,
+            'batch_size': self.batch_size,
+            'loss': loss,
+            'epoch': epoch,
+            'train_device': self.train_device,
+            'gpus_utilized': torch.cuda.device_count() if self.train_device == 'cuda' else 0,
 
-                'gpu_devices': [] if self.train_device != 'cuda' else [
-                    {
-                        'gpu_name': torch.cuda.get_device_properties(device).name,
-                        'total_memory': torch.cuda.get_device_properties(device).total_memory,
-                        'number_of_multiprocessors': torch.cuda.get_device_properties(device).multi_processor_count
-                    }
-                    for device in range(torch.cuda.device_count())
-                ]
+            'gpu_devices': [] if self.train_device != 'cuda' else [
+                {
+                    'gpu_name': torch.cuda.get_device_properties(device).name,
+                    'total_memory': torch.cuda.get_device_properties(device).total_memory,
+                    'number_of_multiprocessors': torch.cuda.get_device_properties(device).multi_processor_count
+                }
+                for device in range(torch.cuda.device_count())
+            ]
 
         }
         torch.save(snapshot, f=checkpoint_path)
@@ -264,7 +259,8 @@ class NetworkTrainer(object):
             if file_format.lower() in ("pt", "pth"):
                 config = torch.load(snapshot_path)
 
-                self.network = self.network.load_state_dict(config['model_state'])
+                self.network = self.network.load_state_dict(
+                    config['model_state'])
                 self.network = self.network.to(config['train_device'])
 
     def get_reproducible_loader(self, worker_seed: int, loader: data.DataLoader) -> data.DataLoader:
@@ -283,13 +279,13 @@ class NetworkTrainer(object):
         loader.generator = seed_generator
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
- 
+
     def reset_reproducible(self, loader: data.DataLoader):
         loader.worker_init_fn = None
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
         loader.generator = None
-        
+
     def prepare_loader(self, dataset: data.Dataset) -> data.DataLoader:
         """
         Prepares dataset for training
@@ -320,7 +316,7 @@ class NetworkTrainer(object):
 
         if self.reproducible:
             return self.get_reproducible_loader(
-                worker_seed=self.seed, 
+                worker_seed=self.seed,
                 loader=loader
             )
         else:
@@ -347,27 +343,28 @@ class NetworkTrainer(object):
 
                 probs = self.network.to(self.train_device).forward(
                     imgs.clone().detach().to(self.train_device))
-                
+
                 cpu_probs = probs.cpu()
 
                 # computing one hot distribution
                 one_hots = torch.zeros_like(cpu_probs)
-                
+
                 for idx, class_ in enumerate(classes):
                     one_hots[idx][classes[idx]] = 1
 
-                smoothed_one_hots = torch.as_tensor(self.label_smoother(one_hots))
+                smoothed_one_hots = torch.as_tensor(
+                    self.label_smoother(one_hots))
 
                 loss = self.loss_function(cpu_probs, smoothed_one_hots)
-                
+
                 epoch_loss.append(loss.item())
 
                 loss.backward()
                 self.optimizer.step()
-                
+
                 # flushing output cache
                 cpu_probs.zero_()
-                
+
                 # clearing up dynamic memory
                 gc.collect()
                 torch.cuda.empty_cache()
@@ -388,12 +385,18 @@ class NetworkTrainer(object):
                 metric = self.evaluate(self.early_dataset)
                 best_eval_metric = max(metric, round(best_eval_metric, 3))
                 step = self.early_stopper.step(metric)
-                
+
                 if step:
                     break
 
             if (epoch + 1) % self.save_every == 0:
                 self.save_snapshot(epoch_loss, epoch)
+
+            # saving tracked information to tensorboard logs directory
+            self.track_network_params(
+                writer=self.network_writer,
+                global_step=global_step
+            )
         return best_loss
 
     def evaluate(self, validation_dataset: data.Dataset, slicing=False):
@@ -429,13 +432,15 @@ class NetworkTrainer(object):
                         imgs.clone().detach().to(self.train_device))
 
                     cpu_probs = probs.cpu()
-                    
+
                     pred_labels = torch.argmax(
                         cpu_probs, dim=1, keepdim=False)
-                
-                    output_labels = numpy.concatenate([output_labels, pred_labels])
-                    output_classes = numpy.concatenate([output_classes, classes])
-                    
+
+                    output_labels = numpy.concatenate(
+                        [output_labels, pred_labels])
+                    output_classes = numpy.concatenate(
+                        [output_classes, classes])
+
                     cpu_probs.zero_()
                     gc.collect()
 

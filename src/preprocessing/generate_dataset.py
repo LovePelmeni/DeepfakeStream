@@ -1,30 +1,39 @@
-import numpy 
+import numpy
 import pandas
-import argparse 
+import argparse
 import pathlib
-import os 
+import os
 import shutil
+
 
 def move_videos(video_paths: list, output_path: str):
     for video_path in video_paths:
         dest_path = os.path.join(output_path, video_paths)
         shutil.move(src=video_path, dest=dest_path)
 
+
 def main():
 
     parser = argparse.ArgumentParser()
-    args = parser.add_argument 
+    args = parser.add_argument
 
-    args("--videos-path", dest='videos_path', type=str, help='path to videos folder')
-    args("--labels-path", dest='labels_path', type=str, help='path to video folder labels (csv file)')
-    args("--output-path", dest='output_path', type=str, help='folder to save videos')
-    args('--output-labels-name', dest='output_labels_name', type=str, help='name of the CSV file to save labels (without extension)')
-    args("--num-videos", dest='num_videos', type=int,  help='number of videos to extract from the folder')
-    args("--fake-prop", type=int, default=0.5, dest='fake_prop', help='proportion of fake videos to select')
-    args("--orig-prop", type=int, default=0.5, dest='orig_prop', help='proportion of orig videos to select')
+    args("--videos-path", dest='videos_path',
+         type=str, help='path to videos folder')
+    args("--labels-path", dest='labels_path', type=str,
+         help='path to video folder labels (csv file)')
+    args("--output-path", dest='output_path',
+         type=str, help='folder to save videos')
+    args('--output-labels-name', dest='output_labels_name', type=str,
+         help='name of the CSV file to save labels (without extension)')
+    args("--num-videos", dest='num_videos', type=int,
+         help='number of videos to extract from the folder')
+    args("--fake-prop", type=int, default=0.5, dest='fake_prop',
+         help='proportion of fake videos to select')
+    args("--orig-prop", type=int, default=0.5, dest='orig_prop',
+         help='proportion of orig videos to select')
 
     params = parser.parse_args()
-    
+
     videos_path = pathlib.Path(params.videos_path)
     labels_path = pathlib.Path(params.labels_path)
 
@@ -48,7 +57,8 @@ def main():
     if ext.lower() == 'csv':
         labels = pandas.read_csv(labels_path)
 
-    fake_videos = labels[(labels['original'].isna()) & (labels['label'] == 'FAKE')]
+    fake_videos = labels[(labels['original'].isna()) &
+                         (labels['label'] == 'FAKE')]
     orig_videos = labels[(labels['label'] == 'ORIG')]
 
     random_fake_indices = numpy.random.choice(
@@ -61,11 +71,12 @@ def main():
 
     labels = labels.iloc[
         numpy.unique(
-        random_fake_indices + random_orig_indices)
+            random_fake_indices + random_orig_indices)
     ]
 
     # moving videos to new folder
-    selected_videos = (fake_videos['name'].tolist() + orig_videos['name'].tolist())
+    selected_videos = (
+        fake_videos['name'].tolist() + orig_videos['name'].tolist())
 
     video_paths = [
         os.path.join(videos_path, video_name)

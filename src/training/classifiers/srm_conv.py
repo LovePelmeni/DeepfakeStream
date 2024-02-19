@@ -1,5 +1,5 @@
 from torch import nn
-import torch 
+import torch
 import numpy
 
 
@@ -14,14 +14,15 @@ class SRMConv(nn.Module):
         it is not recommended to change the size
         of the layer, as it may lead to unexpected results
     """
+
     def __init__(self, in_channels: int):
         super(SRMConv, self).__init__()
-        
+
         with torch.no_grad():
 
             self.conv = nn.Conv2d(
-                in_channels=in_channels, 
-                out_channels=1, 
+                in_channels=in_channels,
+                out_channels=1,
                 kernel_size=5,
                 stride=(1, 1),
                 padding=2,
@@ -52,7 +53,7 @@ class SRMConv(nn.Module):
                             ]
                         ]
                     )
-                ), 
+                ),
                 requires_grad=False
             )
 

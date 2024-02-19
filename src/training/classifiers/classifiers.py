@@ -6,7 +6,7 @@ from timm.models.efficientnet import (
     tf_efficientnetv2_b2,
     _cfg
 )
-from functools import partial 
+from functools import partial
 import typing
 
 
@@ -21,6 +21,7 @@ encoder_params = {
     }
 }
 
+
 class DeepfakeClassifier(nn.Module):
     """
     Deepfake classifier prototype
@@ -31,23 +32,24 @@ class DeepfakeClassifier(nn.Module):
     -----------
         input_channels: depth of the input image (either 1 or 3)
         encoder_name - (nn.Module) EfficientNet-like encoder network
-    
+
     NOTE:
         Encoder network should output nxmx1280 feature vector
         so, you have to adjust internal model parameters, to match this 
         requirement.
     """
-    def __init__(self, # 256x256
-        input_channels: int, 
-        encoder_name: str
-    ):
+
+    def __init__(self,  # 256x256
+                 input_channels: int,
+                 encoder_name: str
+                 ):
         super(DeepfakeClassifier, self).__init__()
         self.conv1 = nn.Conv2d(
-            in_channels=input_channels, 
+            in_channels=input_channels,
             out_channels=input_channels,
             bias=False
-        ) 
-        self.encoder  = encoder_params[encoder_name]['encoder']()
+        )
+        self.encoder = encoder_params[encoder_name]['encoder']()
         self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout1 = nn.Dropout()
         self.dense1 = nn.Linear(
@@ -57,13 +59,13 @@ class DeepfakeClassifier(nn.Module):
         )
         self.relu1 = nn.ReLU()
         self.dense2 = nn.Linear(
-            in_features=128, 
+            in_features=128,
             out_features=64,
             bias=True
         )
         self.relu2 = nn.ReLU()
         self.dense3 = nn.Linear(
-            in_features=64, 
+            in_features=64,
             out_features=1,
             bias=True
         )
@@ -88,39 +90,43 @@ class DeepfakeClassifierSRM(nn.Module):
     Version of deepfake classifier, based on concept
     of SRM (Spatial Rich Model) Filters.
     """
-    def __init__(self, 
-        input_channels: int, 
-        encoder_name: str, 
-        num_classes: int,
-        encoder_pretrained_config: typing.Dict = None,
-        dropout_rate: float = 0.5
-    ):
+
+    def __init__(self,
+                 input_channels: int = 3,
+                 encoder_name: str = list(encoder_params.keys())[-1],
+                 num_classes: int = 2,
+                 encoder_pretrained_config: typing.Dict = None,
+                 dropout_rate: float = 0.5
+                 ):
         super(DeepfakeClassifierSRM, self).__init__()
 
         # preping custom configuration for the EfficientNet encoder, in case presented
         if encoder_pretrained_config is not None:
             pretrained_cfg = _cfg(
                 url=encoder_pretrained_config.get("url", ''),
-                input_size=encoder_pretrained_config.get("encoder_input_image_size"),
-                file=encoder_pretrained_config.get("encoder_weights_path")
+                input_size=encoder_pretrained_config.get(
+                    "encoder_input_image_size"),
+                file=encoder_pretrained_config.get(
+                    "encoder_weights_path", None)
             )
         else:
             pretrained_cfg = None
 
         self.encoder_name = encoder_name
         self.srm_conv = srm_conv.SRMConv(in_channels=input_channels)
-        self.encoder = encoder_params[encoder_name]['encoder'](pretrained_cfg=_cfg(pretrained_cfg))
-        self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1)) # x x 1 x 1
+        self.encoder = encoder_params[encoder_name]['encoder'](
+            pretrained_cfg=_cfg(pretrained_cfg))
+        self.avgpool1 = nn.AdaptiveAvgPool2d((1, 1))  # x x 1 x 1
         self.dropout1 = nn.Dropout(p=dropout_rate)
         self.dense1 = nn.Linear(
-            in_features=encoder_params[encoder_name]['features'], 
-            out_features=64, 
+            in_features=encoder_params[encoder_name]['features'],
+            out_features=64,
             bias=True,
         )
         self.relu1 = nn.ReLU()
         self.dense2 = nn.Linear(
             in_features=64,
-            out_features=32, 
+            out_features=32,
             bias=True
         )
         self.relu2 = nn.ReLU()
@@ -130,11 +136,12 @@ class DeepfakeClassifierSRM(nn.Module):
             bias=True
         )
         self.softmax = nn.Softmax(dim=1)
-    
+
     def forward(self, input_map: torch.Tensor):
         noise = self.srm_conv(input_map)
         output = self.encoder.forward_features(noise)
-        output = self.avgpool1(output).view(-1, encoder_params[self.encoder_name]['features'])
+        output = self.avgpool1(
+            output).view(-1, encoder_params[self.encoder_name]['features'])
         output = self.dropout1(output)
         output = self.dense1(output)
         output = self.relu1(output)
@@ -143,6 +150,8 @@ class DeepfakeClassifierSRM(nn.Module):
         output = self.dense3(output)
         output_probs = self.softmax(output)
         return output_probs
+
+
 class GlobalWeightedAveragePooling(nn.Module):
     """
     Global weighted average pooling, which examinates
@@ -151,12 +160,13 @@ class GlobalWeightedAveragePooling(nn.Module):
     Pixel-level Localization and Image-level
     Classification by Suo Qiu"
     """
+
     def __init__(self, input_size: int, flatten: bool = False):
         super(GlobalWeightedAveragePooling, self).__init__()
         self.conv = nn.Conv2d(
-            input_size, 
-            out_channels=1, 
-            kernel_size=1, 
+            input_size,
+            out_channels=1,
+            kernel_size=1,
             bias=False
         )
         self.flatten = flatten
@@ -176,6 +186,8 @@ class GlobalWeightedAveragePooling(nn.Module):
         x = x * input_x
         x = x.sum(dim=[2, 3], keepdim=not self.flatten)
         return x
+
+
 class DeepfakeClassifierGWAP(nn.Module):
     """
     Implementation of the Deepfake classifier
@@ -187,6 +199,7 @@ class DeepfakeClassifierGWAP(nn.Module):
         encoder_name - name of the encoder CNN-based 
         network from 'encoder_params'
     """
+
     def __init__(self, encoder_name: str):
         super(DeepfakeClassifierGWAP, self).__init__()
 
@@ -204,7 +217,7 @@ class DeepfakeClassifierGWAP(nn.Module):
         self.dropout1 = nn.Dropout(p=0.5)
 
         self.dense1 = nn.Linear(
-            in_features=encoder_params[encoder_name]['features'], 
+            in_features=encoder_params[encoder_name]['features'],
             out_features=64,
             bias=True
         )
@@ -218,9 +231,9 @@ class DeepfakeClassifierGWAP(nn.Module):
         )
 
         self.sigmoid = nn.Sigmoid()
-    
+
     def forward(self, image: torch.Tensor):
-        
+
         if not len(image.shape) == 4:
             raise ValueError("""input should have 4 dimensions: 
             (batch_size, channels, height, width), however, 

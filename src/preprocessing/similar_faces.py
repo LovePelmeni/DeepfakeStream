@@ -1,7 +1,8 @@
-import numpy 
+import numpy
+
 
 def match_fake_and_orig_faces(
-    input_img: numpy.ndarray, 
+    input_img: numpy.ndarray,
     input_img2: numpy.ndarray
 ):
     """

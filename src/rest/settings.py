@@ -1,8 +1,8 @@
-import fastapi 
-import os 
-import logging 
+import fastapi
+import os
+import logging
 from src.rest.controllers import (
-    predict_human_deepfake, 
+    predict_human_deepfake,
     healthcheck,
     parse_system_metrics
 )
@@ -26,12 +26,12 @@ try:
         allow_headers=ALLOWED_HEADERS,
         allow_methods=ALLOWED_METHODS,
     )
-except(Exception) as err:
+except (Exception) as err:
     logger.error("failed to add core middlewares for protecting application")
 
 try:
     application.add_api_route(
-        path='/predict/human/deepfake/',
+        path='/api/predict/deepfake/',
         endpoint=predict_human_deepfake,
         methods=['POST']
     )
@@ -41,11 +41,11 @@ try:
         methods=['GET']
     )
     application.add_api_route(
-        path="/parse/system/metrics/", 
+        path="/parse/system/metrics/",
         endpoint=parse_system_metrics,
         methods=["GET"],
     )
 
-except(Exception) as err:
+except (Exception) as err:
     logger.fatal("failed to start ASGI Server application")
     raise SystemExit("Failed to start application, check logs.")

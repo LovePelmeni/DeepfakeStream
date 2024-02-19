@@ -7,6 +7,7 @@ import logging
 
 logger = logging.getLogger("dataset_logger")
 
+
 class DeepfakeDataset(data.Dataset):
     """
     Dataset class, used
@@ -37,10 +38,10 @@ class DeepfakeDataset(data.Dataset):
     """
 
     def __init__(self,
-        image_paths: typing.List[str],
-        image_labels: typing.List[typing.Union[str, int]],
-        data_type = torch.float32
-    ):
+                 image_paths: typing.List[str],
+                 image_labels: typing.List[typing.Union[str, int]],
+                 data_type=torch.float32
+                 ):
         self.image_paths = image_paths
         self.image_labels = image_labels
         self.data_type = data_type
@@ -71,11 +72,8 @@ class DeepfakeDataset(data.Dataset):
             image = self.get_tensor_image(idx)
             img_class = self.get_class(idx)
             return image, img_class
-    
+
         except (Exception) as err:
             logger.error(err)
             raise RuntimeError(
                 'failed to parse data, internal error occurred')
-
-
-

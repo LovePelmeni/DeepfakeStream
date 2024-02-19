@@ -1,5 +1,6 @@
-import numpy 
+import numpy
 from torch import nn
+
 
 def convert_syncbn_model(network: nn.Module):
     """

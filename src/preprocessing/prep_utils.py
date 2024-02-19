@@ -1,6 +1,7 @@
-import os 
+import os
 from glob import glob
 import json
+
 
 def get_video_paths(source_path: str):
     paths = []
@@ -8,6 +9,7 @@ def get_video_paths(source_path: str):
         video_path = os.path.join(source_path, path)
         paths.append(video_path)
     return paths
+
 
 def get_originals_without_fakes(root_dir: str):
     """
@@ -43,6 +45,7 @@ def get_originals_without_fakes(root_dir: str):
         json_file.close()
     return paths
 
+
 def get_fakes_without_originals(root_dir: str):
     """
     Returns deep faked videos without returning
@@ -69,11 +72,12 @@ def get_fakes_without_originals(root_dir: str):
         json_config.close()
     return paths
 
+
 def get_orig_fake_pairs(root_dir: str):
 
     pairs = []
     for metadata_url in glob(root_dir=root_dir, pathname="**/*.json", recursive=True):
-        
+
         metadata_path = os.path.join(root_dir, metadata_url)
         base_path = '/'.join(metadata_url.split('/')[:-1])
 
@@ -90,5 +94,3 @@ def get_orig_fake_pairs(root_dir: str):
                     pairs.append(pair)
         json_file.close()
     return pairs
-
-
