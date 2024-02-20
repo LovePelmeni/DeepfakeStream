@@ -58,14 +58,13 @@ def parse_server_info():
         "python_version": platform.python_version(),
         "architecture": platform.architecture(),
         "ram": {
-            "total_capacity": psutil.virtual_memory().total,
-            "used": psutil.virtual_memory().percent,
-            "available": psutil.virtual_memory().available * 100 / psutil.virtual_memory().total,
+            "total_capacity_bytes": psutil.virtual_memory().total,
+            "used_perc": psutil.virtual_memory().percent,
+            "available_perc": round(psutil.virtual_memory().available * 100 / psutil.virtual_memory().total, 1)
         },
         "cpu": {
-            "total_capacity": psutil.cpu_percent(),
-            "total_cpus": psutil.cpu_count(),
-            "cpu_frequency_info": psutil.cpu_freq()
+            "utilization_perc": psutil.cpu_percent(),
+            "total_cores": psutil.cpu_count()
         }
     }
 
