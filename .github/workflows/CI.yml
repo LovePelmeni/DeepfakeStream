@@ -1,0 +1,19 @@
+name: CI Deployment 
+
+on:
+  push:
+    branches:
+      - main 
+  
+jobs:
+
+  build:
+    steps:
+      - name:
+        run: |
+          
+      - name:
+        run: |
+
+      - name:
+        run: |

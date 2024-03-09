@@ -1,0 +1,48 @@
+name: Linter Tests
+
+# This workflow is triggered on pushes or PRs
+# to evaluate code quality using Linter tools.
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != ''
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lint: ['flake8', 'ufmt']
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v2
+
+      - name: Setup pip environment
+        uses: 
+
+      - name: Install Dependencies
+        run: |
+          source ./m_env/bin/activate
+          python -m pip install --ugprade pip
+          pip install --progress-bar off flake8
+          pip install --progress-bar off ufmt
+          pip install --progress-bar off black
+
+      - name: Run flake8 linter
+        if: matrix.lint == 'flake8'
+        run: |
+          source ./m_env/bin/activate
+          flake8 --version
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F72,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings
+          flake8 . --count --exit-zero --max-complexity=18 --max-line-length=88 --statistics
+        
+      - name: Run Ufmt Linter
+        if: matrix.lint == 'ufmt'
+        run: |
+          source ./m_env/bin/activate
+          ufmt --version
+          ufmt check .
