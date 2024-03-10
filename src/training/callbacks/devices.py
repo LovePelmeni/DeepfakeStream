@@ -18,6 +18,10 @@ class CPUInferenceCallback(base.BaseCallback):
         self.cpu_latency_measures = []
         self.cpu_time_measures = []
 
+    def tearDown(self, **kwargs):
+        if hasattr(self, 'writer'):
+            self.writer.close()
+
     def on_train_batch_start(self, **kwargs):
         self._start_timer = time.time()
         self._start_latency_timer = psutil.cpu_percent()
@@ -81,3 +85,7 @@ class GPUInferenceCallback(base.BaseCallback):
             scalar_value=avg_gpu_time, 
             global_step=global_step
         )
+
+    def tearDown(self, **kwargs):
+        if hasattr(self, 'writer'):
+            self.writer.close()
