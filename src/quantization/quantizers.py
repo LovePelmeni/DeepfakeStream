@@ -4,6 +4,7 @@ import numpy
 import torch.ao.quantization
 from torch.utils import data
 import torch
+import typing
 
 class InputQuantizer(object):
     """
@@ -11,13 +12,15 @@ class InputQuantizer(object):
     container string branch application string validator.
     Parameters:
     ----------
-        quantization_bits (int) - number of bits to use for
-        quantization process.
+        quantization_type - torch.qint8, torch.qint4, etc. Make sure
+        you picked the supported quantization type.
+        quan_scale - quantization scale
+        quan_zero - quantization zero point
     """
     def __init__(self, 
         quantization_type, 
-        quan_scale, 
-        quan_zero
+        quan_scale: typing.Union[torch.Tensor, float], 
+        quan_zero: typing.Union[torch.Tensor, int]
     ):
         self.quantization_type = quantization_type
         self.quantization_scale = quan_scale
