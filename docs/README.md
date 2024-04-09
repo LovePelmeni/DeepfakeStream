@@ -63,7 +63,7 @@ We want to find solution, which adapts well to the `Deepfake Detection Challenge
 - **Evaluation Metrics**: 
 
     As an evaluation metric, we selected `F1-Score`.
-    It provides the way of balancing between precision and recall. For deepfake detection problem, both precisio and recall are important. High precision indicates, that model accurately identifies positive examples, while preserves minimum number of false positives. High Recall indicates a high portion of accurately identified positive examples out of the entire distribution of positively marked samples. Therefore, `F1-Score` is highly valuable, as it ensures, that both objectives are met.
+    It provides the way of balancing between precision and recall. For deepfake detection problem, both precisio and recall are important. High precision indicates, that model accurately identifies positive examples, while retaining minimum number of false positives. High Recall indicates a high portion of accurately identified positive examples out of the entire distribution of positively marked samples. Therefore, `F1-Score` is highly valuable, as it ensures, that both objectives are met.
 
 ## Technologies and Languages
 
