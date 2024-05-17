@@ -16,7 +16,8 @@ from src.training.callbacks import (
 from src.training.trainers import base as base_trainer
 
 logger = logging.getLogger(__name__)
-
+file_handler = logging.FileHandler(filename="file_handler.log")
+logger.addHandler(file_handler)
 
 class DistillationTrainer(base_trainer.BaseTrainer):
     """
@@ -51,7 +52,9 @@ class DistillationTrainer(base_trainer.BaseTrainer):
         log_dir: pathlib.Path,
         alpha: float = 0.25,
         lr_scheduler: nn.Module = None,
-        callbacks: typing.List[base.BaseCallback] = []
+        callbacks: typing.List[base.BaseCallback] = [],
+        seed: int = None,
+        reproducible: bool = False
     ):
         super(DistillationTrainer, self).__init__()
 
@@ -66,6 +69,11 @@ class DistillationTrainer(base_trainer.BaseTrainer):
         self.lr_scheduler = lr_scheduler
         
 
+        # reproducibility settings
+        self.seed = seed 
+
+        if reproducible == True:
+            self.configure_reproducible()
 
         self.train_device = train_device
 
@@ -115,6 +123,14 @@ class DistillationTrainer(base_trainer.BaseTrainer):
             save_every=self.save_every, 
             log_dir=checkpoint_dir
         )
+
+    def configure_reproducible(self):
+        """
+        Fixates parameters (randomness) of the experiment
+        to enable further reproduciblity of the training.
+        """
+        torch.manual_seed(seed=self.seed)
+        numpy.random.seed(seed=self.seed)
 
     def evaluate(self, validation_dataset: data.Dataset):
 
@@ -192,4 +208,4 @@ class DistillationTrainer(base_trainer.BaseTrainer):
 
             curr_loss = numpy.mean(epoch_losses)
             eval_loss, eval_metric = self.evaluate(validation_dataset)
-            
+        
