@@ -4,8 +4,10 @@ from src.preprocessing import resize
 
 cv2.setNumThreads(0)
 
-
-def get_train_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Compose:
+def get_train_crop_augmentations(
+    crop_image_size: int,
+    normalization_means: typing.Tuple[float, float, float],
+    normalization_stds: typing.Tuple[float, float, float]) -> albumentations.Compose:
     """
     Returns augmentations for training data
 
@@ -51,11 +53,18 @@ def get_train_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Compose
                         target_size=CROP_IMAGE_SIZE
                     ),
                 ], p=1),
+            albumentations.Normalize(
+                mean=normalization_means,
+                std=normalization_stds
+            )
         ]
     )
 
 
-def get_validation_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Compose:
+def get_validation_crop_augmentations(
+    crop_image_size: int,
+    normalization_means: typing.Tuple[float, float, float],
+    normalization_stds: typing.Tuple[float, float, float]) -> albumentations.Compose:
     """
     Returns augmentations for training data
 
@@ -76,6 +85,44 @@ def get_validation_crop_augmentations(CROP_IMAGE_SIZE: int) -> albumentations.Co
                 interpolation_up=cv2.INTER_LINEAR,
                 target_size=CROP_IMAGE_SIZE
             ),
-            albumentations.HorizontalFlip(p=0.5)
+            albumentations.HorizontalFlip(p=0.5),
+            albumentations.Normalize(
+                mean=normalization_means,
+                std=normalization_stds
+            )
         ]
     )
+
+def get_inference_augmentations(
+    crop_image_size: int,
+    normalization_means: typing.Tuple[float, float, float],
+    normalization_stds: typing.Tuple[float, float, float]) -> albumentations.Compose:
+    """
+    Set of inference preprocessing transformations.
+    Parameters:
+    -----------
+        crop_image_size (int) - size of the cropped image
+    """
+    return albumentations.OneOf(
+            transforms=[
+                resize.IsotropicResize(
+                    target_size=crop_image_size,
+                    interpolation_up=cv2.INTER_LINEAR,
+                    interpolation_down=cv2.INTER_CUBIC
+                ),
+                resize.IsotropicResize(
+                    target_size=crop_image_size,
+                    interpolation_up=cv2.INTER_LINEAR,
+                    interpolation_down=cv2.INTER_NEAREST
+                ),
+                resize.IsotropicResize(
+                    target_size=crop_image_size,
+                    interpolation_up=cv2.INTER_CUBIC,
+                    interpolation_down=cv2.INTER_NEAREST
+                ),
+                albumentations.Normalize(
+                    mean=normalization_means,
+                    std=normalization_stds
+                )
+            ]
+        )
