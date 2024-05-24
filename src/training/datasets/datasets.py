@@ -5,6 +5,8 @@ import numpy
 import torch
 import logging
 
+from src.exceptions import exceptions 
+
 logger = logging.getLogger("dataset_logger")
 
 
@@ -45,6 +47,11 @@ class DeepfakeDataset(data.Dataset):
         self.image_paths = image_paths
         self.image_labels = image_labels
         self.data_type = data_type
+
+        if any([cv2.imread(img, cv2.IMREAD_UNCHANGED) is None for img in image_paths]):
+            raise exceptions.InvalidSourceError(
+                msg='some of the image paths provided are not valid'
+            )
 
     def __len__(self):
         return len(self.image_paths)
