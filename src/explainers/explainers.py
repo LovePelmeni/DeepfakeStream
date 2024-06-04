@@ -22,10 +22,8 @@ def interpret_network_predictions(
     img_indices: typing.List
 ):
     """
-    Leverages technique of Grad-CAM to 
-    give a visual interpretation on how 
-    model distinguishes between good and bad 
-    features on the image.
+    Leverages technique called "Grad-CAM" to 
+    generate visual interpretation map of discernments between important and less useful features.
 
     NOTE:
         implied to use this method
