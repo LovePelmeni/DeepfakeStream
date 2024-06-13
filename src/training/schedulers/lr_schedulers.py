@@ -117,3 +117,46 @@ class ExponentialLRScheduler(_LRScheduler):
             return self.base_lrs
 
         return [base_lr * torch.exp(-self.gamma * self.last_epoch) for base_lr in self.base_lrs]
+
+# -------------------
+# Warmup LR schedulers.
+
+class LinearWarmup(_LRScheduler):
+    """
+    Implementation of the Linear Warmup
+    Learning Rate Scheduler.
+    
+    Parameters:
+    -----------
+        num_iters: int - total number of iterations.
+        min_lr: float - minimum learning rate.
+        t_mult: int - number of iterations * iters[-1], which determines
+        next time update is going to be made.
+    """
+    def __init__(self, 
+        optimizer: nn.Module,
+        num_iters: int, 
+        init_lr: float,
+        target_lr: float,
+    ):
+        self.num_iters: int = num_iters
+        self.init_lr: float = init_lr
+        self.target_lr: float = target_lr
+        self.curr_iter: int = 0
+        super(LinearWarmup, self).__init__(optimizer=optimizer)
+
+    def step(self, curr_step: int = 1):
+        self.curr_iter = curr_step
+        super(LinearWarmup, self).step()
+
+    def get_lr(self):
+        return [
+            (
+                base_lr + 
+                self.curr_iter * (
+                    (self.target_lr - self.init_lr
+                    ) / self.num_iters
+                ) 
+            )
+            for base_lr in self.base_lrs
+        ]
