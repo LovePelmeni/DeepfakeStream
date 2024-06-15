@@ -15,6 +15,7 @@ import pathlib
 
 trainer_logger = logging.getLogger("trainer_logger.log")
 handler = logging.FileHandler("network_trainer_logs.log")
+
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -27,8 +28,9 @@ torch.autograd.set_detect_anomaly(True)
 
 class NetworkTrainer(object):
     """
-    Pipeline class, used for training 
-    and evaluating neural networks
+    Base Training Pipeline class for finetuning, training and
+    evaluating Convolutional Neural Networks for Deepfake Analysis.
+    Particularly for those, located under the directory 'src/training/classifiers'
 
     Parameters:
     -----------
@@ -60,14 +62,11 @@ class NetworkTrainer(object):
                  max_epochs: int,
                  batch_size: int,
                  optimizer: nn.Module,
-                 checkpoint_dir: str,
-                 output_weights_dir: str,
                  log_dir: str,
                  save_every: int,
                  scheduler: nn.Module = None,
                  train_device: typing.Literal['cpu', 'cuda', 'mps'] = 'cpu',
                  loader_num_workers: int = 1,
-                 label_smoothing_eps: float = 0,
                  distributed: bool = False,
                  reproducible: bool = False,
                  seed: int = None
@@ -110,18 +109,31 @@ class NetworkTrainer(object):
             min_diff=minimum_metric_difference
         )
 
-        self.label_smoother = regularization.LabelSmoothing(
-            etta=label_smoothing_eps)
-
         self.loss_function = loss_function
         self.eval_metric = eval_metric
 
         self.loader_num_workers = loader_num_workers
         self.save_every = save_every
 
-        self.checkpoint_dir = pathlib.Path(checkpoint_dir)
-        self.output_weights_dir = pathlib.Path(output_weights_dir)
         self.log_dir = pathlib.Path(log_dir)
+        self.device_utilization_dir = pathlib.Path(
+            os.path.join(
+                log_dir, 
+                "device_utilization"
+            )
+        )
+        self.checkpoint_dir = pathlib.Path(
+            os.path.join(
+                log_dir, 
+                "checkpoints"
+            )
+        )
+        self.output_weights_dir = pathlib.Path(
+            os.path.join(
+                log_dir, 
+                "weights"
+            )
+        )
 
         self.network_writer = SummaryWriter(  # logging dir should preferably contain (name of the experiment,version,timestamp)
             log_dir=os.path.join(log_dir, "network_params"),
@@ -132,6 +144,7 @@ class NetworkTrainer(object):
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         os.makedirs(self.output_weights_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.device_utilization_dir, exist_ok=True)
 
     def freeze_layers(self, layers):
         """
@@ -324,6 +337,24 @@ class NetworkTrainer(object):
 
     def train(self, train_dataset: data.Dataset):
 
+        train_loader = self.configure_loader(train_dataset)
+        device_to_track = (
+            torch.autograd.profiler.ProfilerActivity.CPU 
+            if self.train_device == "cpu" else
+            torch.autograd.profiler.ProfilerActivity.CUDA
+        )
+        # track device activity during training of the network.
+        with torch.autograd.profiler.profile(
+            activities=[device_to_track],
+            with_flops=True,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                dir_name=self.device_utilization_dir
+            ),
+        ):
+            self._train(train_loader)
+
+    def _train(self, train_dataset: data.Dataset):
+
         self.network.train()
 
         loader = self.prepare_loader(dataset=train_dataset)
@@ -341,33 +372,15 @@ class NetworkTrainer(object):
                 desc='EPOCH %s, BEST_LOSS: %s, CURR_LOSS: %s, EVAL METRIC: %s ' % (
                     (epoch+1), best_loss, current_loss, best_eval_metric)):
 
-                probs = self.network.to(self.train_device).forward(
-                    imgs.clone().detach().to(self.train_device))
+                gpu_imgs = imgs.to(self.train_device)
+                raw_logits = self.network.forward(gpu_imgs)
 
-                cpu_probs = probs.cpu()
+                loss = self.loss_function(raw_logits, classes)
 
-                # computing one hot distribution
-                one_hots = torch.zeros_like(cpu_probs)
-
-                for idx, class_ in enumerate(classes):
-                    one_hots[idx][classes[idx]] = 1
-
-                smoothed_one_hots = torch.as_tensor(
-                    self.label_smoother(one_hots))
-
-                loss = self.loss_function(cpu_probs, smoothed_one_hots)
-
-                epoch_loss.append(loss.item())
+                epoch_loss.append(loss.detach().cpu().item())
 
                 loss.backward()
                 self.optimizer.step()
-
-                # flushing output cache
-                cpu_probs.zero_()
-
-                # clearing up dynamic memory
-                gc.collect()
-                torch.cuda.empty_cache()
 
                 # tracking distributions of network parameters
                 global_step += 1
@@ -451,3 +464,4 @@ class NetworkTrainer(object):
                     output_classes
                 )
                 return metric
+
