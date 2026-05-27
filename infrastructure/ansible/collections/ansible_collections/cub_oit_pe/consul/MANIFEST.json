@@ -1,0 +1,34 @@
+{
+ "format": 1,
+ "collection_info": {
+  "tags": [
+   "consul"
+  ],
+  "issues": "https://github.com/CUB-OIT-PE/consul/issues",
+  "documentation": "http://docs.example.com",
+  "description": "Manage Consul Servers and Clients",
+  "name": "consul",
+  "version": "0.2.0",
+  "license": [
+   "AGPL-3.0-only"
+  ],
+  "authors": [
+   "Erinn Looney-Triggs <looneytr@colorado.edu>"
+  ],
+  "repository": "https://github.com/CUB-OIT-PE/consul",
+  "license_file": null,
+  "homepage": "https://github.com/CUB-OIT-PE/consul",
+  "namespace": "cub_oit_pe",
+  "readme": "README.md",
+  "dependencies": {
+   "community.general": ">=2.0.0"
+  }
+ },
+ "file_manifest_file": {
+  "format": 1,
+  "ftype": "file",
+  "chksum_sha256": "340982c2951c7606728f83c46171423f7aee60273ecf8d8c75ff92458f8a4db0",
+  "chksum_type": "sha256",
+  "name": "FILES.json"
+ }
+}

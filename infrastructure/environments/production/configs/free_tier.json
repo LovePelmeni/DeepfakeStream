@@ -1,0 +1,27 @@
+{
+  "zone": "ru-central1-a",
+  "subnet_key": "ru-central1-a",
+  "backend": {
+    "cores": 2,
+    "memory_gb": 4,
+    "disk_size": 30,
+    "instance_count": 1
+  },
+  "frontend": {
+    "cores": 2,
+    "memory_gb": 4,
+    "disk_size": 30
+  },
+  "ml": {
+    "cores": 4,
+    "memory_gb": 8,
+    "disk_size": 50,
+    "gpus": 0,
+    "platform": "standard-v3"
+  },
+  "websocket": {
+    "cores": 2,
+    "memory_gb": 4,
+    "disk_size": 30
+  }
+}

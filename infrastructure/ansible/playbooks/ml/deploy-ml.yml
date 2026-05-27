@@ -1,0 +1,40 @@
+# playbooks/ml-deploy.yml
+---
+- name: Deploy ML service to a single VM (via bastion)
+  hosts: ml-host
+  gather_facts: yes
+  vars:
+    # These come from --extra-vars in GitHub Actions
+    service_name: "{{ service_name }}"
+    service_version: "{{ service_version }}"
+    model_version: "{{ model_version | default('latest') }}"
+    registry_id: "{{ registry_id }}"
+    db_host: "{{ db_host }}"
+    kms_key_id: "{{ kms_key_id }}"
+    ml_service_api_version: "{{ ml_service_api_version }}"
+    environment: "{{ environment }}"
+    # Derived from service_name (using a vars file or lookup)
+    service_config: "{{ lookup('vars', 'service_' + service_name) }}"
+
+  pre_tasks:
+    - name: Ensure Docker is installed
+      include_role:
+        name: docker
+
+    - name: Ensure git is present
+      apt:
+        name: git
+        state: present
+
+  roles:
+    - role: ml_service
+      vars:
+        image_suffix: "{{ service_config.image_suffix }}"
+        port: "{{ service_config.port }}"
+        health_path: "{{ service_config.health_path }}"
+        memory_limit: "{{ service_config.memory_limit }}"
+        memory_reservation: "{{ service_config.memory_reservation }}"
+
+  post_tasks:
+    - name: Clean up old images
+      command: docker image prune -f --filter "until=168h"

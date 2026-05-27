@@ -1,0 +1,115 @@
+name: SOC Stack CI - Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Service to build (ips, siem, case_management, threat_intelligence, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ips
+          - siem
+          - case_management
+          - threat_intelligence
+      image_tag_suffix:
+        description: 'Suffix for image tag (e.g., -hotfix)'
+        required: false
+        type: string
+        default: '-staging'
+      config_file_name:
+        description: 'Config file name in S3'
+        required: false
+        type: string
+        default: 'infrastructure-staging-config.soc.json'
+
+  push:
+    branches: [develop]
+    paths:
+      - "ips/**"
+      - "siem/**"
+      - "case_management/**"
+      - "threat_intelligence/**"
+      - "configs/**"
+      - "deployment/**"
+
+  pull_request:
+    branches: [main]
+    paths:
+      - "ips/**"
+      - "siem/**"
+      - "case_management/**"
+      - "threat_intelligence/**"
+      - "configs/**"
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  detect-changes:
+    name: Detect changed services
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      services_matrix: ${{ steps.set-matrix.outputs.services_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Determine services to build
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.service_name }}" != "all" ]; then
+            # Manual run with specific service
+            SERVICES='["${{ github.event.inputs.service_name }}"]'
+          else
+            # Automatic run: detect changed folders
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+            SERVICES_JSON="[]"
+            for service in ips siem case_management threat_intelligence; do
+              if echo "$CHANGED_FILES" | grep -q "^${service}/" || \
+                 echo "$CHANGED_FILES" | grep -q "^configs/${service}/" || \
+                 echo "$CHANGED_FILES" | grep -q "^deployment/${service}/"; then
+                SERVICES_JSON=$(echo "$SERVICES_JSON" | jq ". + [\"$service\"]")
+              fi
+            done
+            SERVICES=$SERVICES_JSON
+            if [ "$SERVICES" == "[]" ]; then
+              # If no service-specific change but configs/deployment changed, build all
+              if echo "$CHANGED_FILES" | grep -qE "^(configs/|deployment/)"; then
+                SERVICES='["ips","siem","case_management","threat_intelligence"]'
+              fi
+            fi
+          fi
+          echo "services_matrix=$SERVICES" >> "$GITHUB_OUTPUT"
+          echo "Services to build: $SERVICES"
+
+  call-ci:
+    name: Run CI for ${{ matrix.service }}
+    needs: detect-changes
+    if: ${{ fromJson(needs.detect-changes.outputs.services_matrix) != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services_matrix) }}
+    uses: ./.github/workflows/soc-service-ci-reusable.yml
+    with:
+      service_name: ${{ matrix.service }}
+      environment: staging
+      deploy_after_push: ${{ github.event_name == 'push' }}
+      image_tag_suffix: ${{ github.event.inputs.image_tag_suffix || '-staging' }}
+      config_file_name: ${{ github.event.inputs.config_file_name || 'infrastructure-staging-config.soc.json' }}
+    secrets:
+      OBJECT_STORAGE_ACCESS_KEY_ID: ${{ secrets.STAGING_OBJECT_STORAGE_ACCESS_KEY_ID }}
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.STAGING_OBJECT_STORAGE_SECRET_KEY }}
+      CONFIG_BUCKET: ${{ secrets.CONFIG_BUCKET_STAGING }}
+      YC_CI_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+      YANDEX_REGISTRY_ID: ${{ secrets.STAGING_YANDEX_REGISTRY_ID }}
+      OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT }}
+      # If tests require additional secrets (DB passwords, API keys), pass them here
+      TEST_SECRETS: ${{ secrets.TEST_SECRETS }}

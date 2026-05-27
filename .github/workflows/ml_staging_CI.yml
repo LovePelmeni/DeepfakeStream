@@ -1,0 +1,119 @@
+name: ML Service CI - Staging
+
+on:
+  push:
+    branches: [develop, staging]
+    paths:
+      - "src/rest/**"
+      - "src/services/**"
+      - "src/inference/**"
+      - "src/mlops/**"
+      - "src/logging/**"
+      - "src/permissions/**"
+      - "deployment/**"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/rest/**"
+      - "src/services/**"
+      - "src/inference/**"
+      - "src/mlops/**"
+      - "src/logging/**"
+      - "src/permissions/**"
+      - "deployment/**"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service to build"
+        required: true
+        type: choice
+        options:
+          - stockpile-volume
+          - hotspot-detection
+          - object-detection
+          - object-segmentation
+          - d3-reconstruction
+          - orthomosaic
+          - overlap-analysis
+      model_version:
+        description: "Model version"
+        required: false
+        default: "latest"
+        type: string
+
+jobs:
+  detect-service:
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      service_name: ${{ steps.detect.outputs.service_name }}
+      model_version: ${{ steps.detect.outputs.model_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed service
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "service_name=${{ inputs.service_name }}" >> "$GITHUB_OUTPUT"
+            echo "model_version=${{ inputs.model_version }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff --name-only HEAD~1 HEAD)"
+
+          if echo "$CHANGED_FILES" | grep -q "^src/services/stockpile-volume/"; then
+            SERVICE_NAME="stockpile-volume"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/hotspots/"; then
+            SERVICE_NAME="hotspot-detection"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/object_detection/"; then
+            SERVICE_NAME="object-detection"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/object_segmentation/"; then
+            SERVICE_NAME="object-segmentation"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/d3_reconstruction/"; then
+            SERVICE_NAME="d3-reconstruction"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/orthomosaics/"; then
+            SERVICE_NAME="orthomosaic"
+          elif echo "$CHANGED_FILES" | grep -q "^src/services/overlap/"; then
+            SERVICE_NAME="overlap-analysis"
+          else
+            echo "No service changes detected"
+            exit 0
+          fi
+
+          echo "service_name=$SERVICE_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_version=latest" >> "$GITHUB_OUTPUT"
+
+  build-staging:
+    needs: detect-service
+    if: ${{ needs.detect-service.outputs.service_name != '' }}
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+    uses: ./.github/workflows/ml-service-ci-reusable.yml
+    with:
+      environment: staging
+      service_name: ${{ needs.detect-service.outputs.service_name }}
+      model_version: ${{ needs.detect-service.outputs.model_version }}
+      config_file_name: infrastructure-staging-config.ml.json
+      run_security_scans: true
+      fail_on_critical_vulns: false
+      push_to_registry: true
+    secrets:
+      YC_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+      YANDEX_S3_ACCESS_KEY: ${{ secrets.STAGING_OBJECT_STORAGE_ACCESS_KEY_ID }}
+      YANDEX_S3_SECRET_KEY: ${{ secrets.STAGING_OBJECT_STORAGE_SECRET_KEY }}
+      CONFIG_BUCKET: ${{ secrets.CONFIG_BUCKET_STAGING }}
+      OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT }}
+      OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN }}

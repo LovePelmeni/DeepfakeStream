@@ -1,0 +1,18 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: "Include configure"
+      include_role:
+        name: "configure"
+      vars:
+        version: '1.9.3'
+        configuration:
+          main:
+            datacenter: 'bar'
+            data_dir: '/tmp'
+            node_name: 'foobar'
+            server: true
+          logging:
+            log_level: 'INFO'

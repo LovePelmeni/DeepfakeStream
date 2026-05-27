@@ -1,0 +1,229 @@
+name: Terraform Production CD (with Ansible)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'modules/**'
+      - 'ansible/**'
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.6.0'
+  WORKING_DIR: 'terraform/prod'
+  # Production credentials (no prefix)
+  YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+  YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+  YC_TOKEN: ${{ secrets.YC_TOKEN }}
+  TF_VAR_yandex_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+  TF_VAR_yandex_cloud_folder_id: ${{ secrets.YC_FOLDER_ID }}
+  TF_VAR_access_key: ${{ secrets.YC_ACCESS_KEY }}
+  TF_VAR_secret_key: ${{ secrets.YC_SECRET_KEY }}
+  TF_VAR_bastion_ssh_public_key: ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+  TF_VAR_backend_ssh_public_key: ${{ secrets.BACKEND_SSH_PUBLIC_KEY }}
+  TF_VAR_frontend_ssh_public_key: ${{ secrets.FRONTEND_SSH_PUBLIC_KEY }}
+  TF_VAR_ml_ssh_public_key: ${{ secrets.ML_SSH_PUBLIC_KEY }}
+  TF_VAR_ws_ssh_public_key: ${{ secrets.WS_SSH_PUBLIC_KEY }}
+
+jobs:
+  plan-and-approve:
+    name: Plan, Validate & Approve (Prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Terraform Init
+        run: cd ${{ env.WORKING_DIR }} && terraform init
+      - name: Terraform Validate
+        run: cd ${{ env.WORKING_DIR }} && terraform validate
+      - name: Checkov – Best Practices (soft)
+        run: |
+          docker run --rm -v $(pwd):/workspace bridgecrew/checkov \
+            -d /workspace/${{ env.WORKING_DIR }} \
+            --external-checks-dir /workspace/checkov_policies \
+            --framework terraform --soft-fail --quiet
+        continue-on-error: true
+      - name: Terraform Plan
+        id: plan
+        run: cd ${{ env.WORKING_DIR }} && terraform plan -no-color -out=tfplan.binary
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod
+          path: ${{ env.WORKING_DIR }}/tfplan.binary
+          retention-days: 1
+      - name: Checkov – Misconfigurations (hard)
+        run: |
+          docker run --rm -v $(pwd):/workspace bridgecrew/checkov \
+            -d /workspace/${{ env.WORKING_DIR }} \
+            --external-checks-dir /workspace/checkov_policies \
+            --framework terraform --quiet --hard-fail-on HIGH
+      - name: Manual Approval
+        uses: trstringer/manual-approval@v1
+        with:
+          approvers: "lead-engineer,security-lead,cto"
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          minimum-approvals: 2
+          issue-title: "🚨 Deploy to PRODUCTION?"
+          issue-body: "Terraform plan succeeded. Approve to apply infrastructure and run Ansible."
+          exclude-workflow-initiator-as-approver: true
+      - name: Plan summary
+        run: echo "Ready for apply"
+
+  apply-and-deploy:
+    name: Apply Infrastructure & Run Ansible (Prod)
+    runs-on: ubuntu-latest
+    needs: plan-and-approve
+    environment: production
+    concurrency: terraform-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------- Terraform Apply ----------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-prod
+          path: ${{ env.WORKING_DIR }}
+      - name: Configure Yandex Cloud CLI
+        uses: yandex-cloud/yc-github-action@v1
+        with:
+          token: ${{ secrets.YC_TOKEN }}
+          cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+      - name: Terraform Init
+        run: cd ${{ env.WORKING_DIR }} && terraform init
+      - name: Terraform Apply
+        id: apply
+        run: cd ${{ env.WORKING_DIR }} && terraform apply -auto-approve tfplan.binary
+
+      # ---------- Dynamic Inventory ----------
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Build Ansible Inventory
+        id: inventory
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          mkdir -p /tmp/ansible_inventory
+
+          write_hosts() {
+            local group=$1
+            local ips_json=$2
+            echo "  $group:" >> /tmp/ansible_inventory/production.yml
+            echo "$ips_json" | jq -r '.[]' | while read ip; do
+              echo "    $ip:" >> /tmp/ansible_inventory/production.yml
+              echo "      ansible_host: $ip" >> /tmp/ansible_inventory/production.yml
+              echo "      ansible_user: ubuntu" >> /tmp/ansible_inventory/production.yml
+            done
+          }
+
+          cat > /tmp/ansible_inventory/production.yml << EOF
+          all:
+            children:
+          EOF
+
+          BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "")
+          if [ -n "$BASTION_IP" ]; then
+            cat >> /tmp/ansible_inventory/production.yml << EOF
+              bastion:
+                hosts:
+                  bastion-host:
+                    ansible_host: $BASTION_IP
+                    ansible_user: ubuntu
+                    ansible_ssh_private_key_file: /tmp/ssh_key_bastion
+          EOF
+          fi
+
+          BACKEND_IPS=$(terraform output -json backend_ips 2>/dev/null || echo "[]")
+          if [ "$BACKEND_IPS" != "[]" ]; then write_hosts "backend" "$BACKEND_IPS"; fi
+
+          FRONTEND_IPS=$(terraform output -json frontend_ips 2>/dev/null || echo "[]")
+          if [ "$FRONTEND_IPS" != "[]" ]; then write_hosts "frontend" "$FRONTEND_IPS"; fi
+
+          ML_IPS=$(terraform output -json ml_ips 2>/dev/null || echo "[]")
+          if [ "$ML_IPS" != "[]" ]; then write_hosts "ml" "$ML_IPS"; fi
+
+          WS_IPS=$(terraform output -json websocket_ips 2>/dev/null || echo "[]")
+          if [ "$WS_IPS" != "[]" ]; then write_hosts "websocket" "$WS_IPS"; fi
+
+          cat /tmp/ansible_inventory/production.yml
+          echo "inventory_file=/tmp/ansible_inventory/production.yml" >> $GITHUB_OUTPUT
+
+      # ---------- SSH keys ----------
+      - name: Write SSH Private Keys
+        run: |
+          if [ -n "${{ secrets.BASTION_SSH_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.BASTION_SSH_PRIVATE_KEY }}" > /tmp/ssh_key_bastion
+            chmod 600 /tmp/ssh_key_bastion
+          fi
+          if [ -n "${{ secrets.BACKEND_SSH_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.BACKEND_SSH_PRIVATE_KEY }}" > /tmp/ssh_key_backend
+            chmod 600 /tmp/ssh_key_backend
+          fi
+          if [ -n "${{ secrets.FRONTEND_SSH_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.FRONTEND_SSH_PRIVATE_KEY }}" > /tmp/ssh_key_frontend
+            chmod 600 /tmp/ssh_key_frontend
+          fi
+          if [ -n "${{ secrets.ML_SSH_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.ML_SSH_PRIVATE_KEY }}" > /tmp/ssh_key_ml
+            chmod 600 /tmp/ssh_key_ml
+          fi
+          if [ -n "${{ secrets.WS_SSH_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.WS_SSH_PRIVATE_KEY }}" > /tmp/ssh_key_ws
+            chmod 600 /tmp/ssh_key_ws
+          fi
+
+      # ---------- Ansible Playbooks ----------
+      - name: Install Ansible
+        run: |
+          pip install ansible
+          if [ -f ansible/requirements.yml ]; then
+            ansible-galaxy collection install -r ansible/requirements.yml
+          fi
+
+      - name: Run Bastion playbook
+        if: steps.inventory.outputs.inventory_file != '' && hashFiles('/tmp/ssh_key_bastion')
+        run: |
+          ansible-playbook -i ${{ steps.inventory.outputs.inventory_file }} \
+            --private-key /tmp/ssh_key_bastion \
+            ansible/playbooks/bastion/deploy-bastion-host.yml
+
+      - name: Run Backend playbook
+        if: steps.inventory.outputs.inventory_file != '' && hashFiles('/tmp/ssh_key_backend')
+        run: |
+          ansible-playbook -i ${{ steps.inventory.outputs.inventory_file }} \
+            --private-key /tmp/ssh_key_backend \
+            ansible/playbooks/backend/deploy-backend.yml
+
+      - name: Run Frontend playbook
+        if: steps.inventory.outputs.inventory_file != '' && hashFiles('/tmp/ssh_key_frontend')
+        run: |
+          ansible-playbook -i ${{ steps.inventory.outputs.inventory_file }} \
+            --private-key /tmp/ssh_key_frontend \
+            ansible/playbooks/frontend/deploy-frontend.yml
+
+      - name: Run ML playbook
+        if: steps.inventory.outputs.inventory_file != '' && hashFiles('/tmp/ssh_key_ml')
+        run: |
+          ansible-playbook -i ${{ steps.inventory.outputs.inventory_file }} \
+            --private-key /tmp/ssh_key_ml \
+            ansible/playbooks/ml/deploy-ml.yml
+
+      - name: Run Websocket playbook
+        if: steps.inventory.outputs.inventory_file != '' && hashFiles('/tmp/ssh_key_ws')
+        run: |
+          ansible-playbook -i ${{ steps.inventory.outputs.inventory_file }} \
+            --private-key /tmp/ssh_key_ws \
+            ansible/playbooks/websocket/deploy-websocket.yml
+
+      - name: Notify Success
+        run: echo "✅ Production infrastructure applied and services deployed via Ansible"

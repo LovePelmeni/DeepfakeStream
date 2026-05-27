@@ -1,0 +1,33 @@
+---
+- hosts: opensearch
+  become: yes
+
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-17-jdk
+        state: present
+        update_cache: yes
+
+    - name: Download OpenSearch
+      get_url:
+        url: https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/opensearch-2.11.1-linux-x64.tar.gz
+        dest: /tmp/opensearch.tar.gz
+
+    - name: Extract OpenSearch
+      unarchive:
+        src: /tmp/opensearch.tar.gz
+        dest: /opt/
+        remote_src: yes
+
+    - name: Create opensearch user
+      user:
+        name: opensearch
+        shell: /bin/bash
+
+    - name: Set ownership
+      file:
+        path: /opt/opensearch-2.11.1
+        owner: opensearch
+        group: opensearch
+        recurse: yes

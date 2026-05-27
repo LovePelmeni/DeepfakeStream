@@ -1,0 +1,34 @@
+---
+- name: Setup Teleport bastion host (auth+proxy)
+  hosts: bastion_hosts
+  become: yes
+  vars_files:
+    - ../group_vars/bastion.yml
+    - ../vault/vault.yml   # optional, for secrets
+
+  tasks:
+    - name: Install Teleport from local .deb file
+      apt:
+        deb: "{{ playbook_dir }}/../../files/bastion/teleport_{{ teleport_version }}_amd64.deb"
+        state: present
+
+    - name: Generate Teleport configuration
+      template:
+        src: "{{ playbook_dir }}/../../templates/bastion/teleport.yaml.j2"
+        dest: /etc/teleport.yaml
+        owner: root
+        group: root
+        mode: 0644
+      notify: restart teleport
+
+    - name: Enable and start Teleport service
+      systemd:
+        name: teleport
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart teleport
+      systemd:
+        name: teleport
+        state: restarted

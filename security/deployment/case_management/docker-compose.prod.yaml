@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  elasticsearch7:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.23
+    container_name: elasticsearch7
+    environment:
+      - cluster.name=soar
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTICSEARCH7_PASSWORD:-changeme}
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9201:9200"
+      - "9301:9300"
+    volumes:
+      - es7_data:/usr/share/elasticsearch/data
+    networks:
+      - soar
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "elastic:${ELASTICSEARCH7_PASSWORD:-changeme}", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=SOARCluster
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    networks:
+      - soar
+    healthcheck:
+      test: ["CMD", "nodetool", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  thehive:
+    image: thehiveproject/thehive:5.5.3
+    container_name: thehive
+    environment:
+      - ELASTICSEARCH_ADDRESSES=https://elasticsearch7:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH7_PASSWORD:-changeme}
+      - CASSANDRA_ADDRESSES=cassandra:9042
+      - JWT_SECRET=${THEHIVE_JWT_SECRET:-changeme}
+      - THEHIVE_ADMIN_PASSWORD=${THEHIVE_ADMIN_PASSWORD:-changeme}
+    ports:
+      - "9000:9000"
+    depends_on:
+      elasticsearch7:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    networks:
+      - soar
+    restart: unless-stopped
+
+  cortex:
+    image: thehiveproject/cortex:5.5.3
+    container_name: cortex
+    environment:
+      - ELASTICSEARCH_ADDRESSES=https://elasticsearch7:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH7_PASSWORD:-changeme}
+      - PLAY_HTTP_SECRET_KEY=${CORTEX_SECRET_KEY:-changeme}
+      - AUTH_LOCAL_USER_DEFAULT_PASSWORD=${CORTEX_ADMIN_PASSWORD:-changeme}
+    ports:
+      - "9001:9001"
+    depends_on:
+      elasticsearch7:
+        condition: service_healthy
+    networks:
+      - soar
+    restart: unless-stopped
+
+networks:
+  soar:
+    driver: bridge
+
+volumes:
+  es7_data:
+  cassandra_data:

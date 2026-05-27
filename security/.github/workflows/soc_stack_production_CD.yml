@@ -1,0 +1,32 @@
+name: SOC Stack CD - Production
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["SOC Stack CD - Staging"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/soc-stack-cd-reusable.yml
+    with:
+      environment: production
+      deploy_version: ${{ github.event.workflow_run.head_sha || github.sha }}
+      perform_rollback_on_failure: true
+      config_file_name: infrastructure-production-config.soc.json
+    secrets:
+      OBJECT_STORAGE_ACCESS_KEY_ID: ${{ secrets.PRODUCTION_OBJECT_STORAGE_ACCESS_KEY_ID }}
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ${{ secrets.PRODUCTION_OBJECT_STORAGE_SECRET_KEY }}
+      CONFIG_BUCKET: ${{ secrets.CONFIG_BUCKET_PRODUCTION }}
+      YC_CD_SA_JSON: ${{ secrets.YC_PRODUCTION_SA_JSON }}
+      YANDEX_VM_SSH_KEY: ${{ secrets.YANDEX_VM_SSH_KEY }}
+      YANDEX_REGISTRY_ID: ${{ secrets.PRODUCTION_YANDEX_REGISTRY_ID }}
+      OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT }}
+      OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN }}

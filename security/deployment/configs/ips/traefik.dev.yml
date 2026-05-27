@@ -1,0 +1,30 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: DEBUG
+  filePath: ""
+
+accessLog:
+  filePath: /var/log/traefik/access.log   # writes to the mounted volume
+  format: common
+  bufferingSize: 0                        # no buffering, write immediately
+
+api:
+  insecure: true
+  dashboard: true
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    watch: true
+    exposedByDefault: false
+    network: proxy
+  file:
+    filename: /etc/traefik/dynamic.yml     # loads dynamic config
+    watch: true

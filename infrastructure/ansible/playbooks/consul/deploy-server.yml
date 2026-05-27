@@ -1,0 +1,117 @@
+---
+- name: Deploy Consul servers
+  hosts: consul_servers
+  become: yes
+  vars:
+    consul_version: "1.19.2"               # Use latest stable
+    consul_user: "consul"
+    consul_group: "consul"
+    consul_data_dir: "/opt/consul/data"
+    consul_config_dir: "/etc/consul.d"
+    consul_ssl_dir: "/etc/consul/ssl"
+    # Gossip encryption key (must be the same on all agents)
+    consul_gossip_key: "{{ vault_consul_gossip_key }}"
+    # ACL bootstrap token (generated after first server start, but you can pre‑set)
+    consul_acl_token: "{{ vault_consul_acl_token | default('') }}"
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - gnupg
+          - curl
+          - unzip
+        state: present
+        update_cache: yes
+
+    - name: Add HashiCorp GPG key
+      apt_key:
+        url: https://apt.releases.hashicorp.com/gpg
+        state: present
+
+    - name: Add HashiCorp repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        state: present
+        update_cache: yes
+
+    - name: Install Consul
+      apt:
+        name: consul={{ consul_version }}
+        state: present
+        allow_downgrade: yes
+
+    - name: Create Consul directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: 0750
+      loop:
+        - "{{ consul_config_dir }}"
+        - "{{ consul_data_dir }}"
+        - "{{ consul_ssl_dir }}"
+
+    - name: Copy server configuration file (server.hcl)
+      copy:
+        src: "files/consul/server.hcl"
+        dest: "{{ consul_config_dir }}/consul.hcl"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: 0640
+      notify: restart consul
+
+    - name: Copy CA certificate
+      copy:
+        src: "files/consul/ssl/ca.pem"
+        dest: "{{ consul_ssl_dir }}/ca.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: 0640
+
+    - name: Copy server certificate (unique per node)
+      copy:
+        src: "files/consul/ssl/server-{{ ansible_hostname }}.pem"
+        dest: "{{ consul_ssl_dir }}/server.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: 0640
+
+    - name: Copy server private key (unique per node)
+      copy:
+        src: "files/consul/ssl/server-{{ ansible_hostname }}-key.pem"
+        dest: "{{ consul_ssl_dir }}/server-key.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: 0600
+      no_log: true
+
+    - name: Override gossip key in configuration (if not already present)
+      lineinfile:
+        path: "{{ consul_config_dir }}/consul.hcl"
+        regexp: '^encrypt = '
+        line: 'encrypt = "{{ consul_gossip_key }}"'
+      notify: restart consul
+
+    - name: Set ACL token if provided
+      lineinfile:
+        path: "{{ consul_config_dir }}/consul.hcl"
+        insertafter: '^acl {'
+        line: '    tokens { initial_management = "{{ consul_acl_token }}" }'
+      when: consul_acl_token != ''
+      notify: restart consul
+
+    - name: Enable and start Consul service
+      systemd:
+        name: consul
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: restart consul
+      systemd:
+        name: consul
+        state: restarted
+        daemon_reload: yes

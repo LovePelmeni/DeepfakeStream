@@ -1,0 +1,9 @@
+---
+# Should the Prometheus Consul Exporter be Installed
+consul_exporter: false
+# The version of Consul Exporter to install, if undefined installs latest.
+consul_exporter_version:
+# The version of Consul to install
+version: ''
+# Should the package installed be versionlocked? Assumes YUM/DNF
+version_lock: true

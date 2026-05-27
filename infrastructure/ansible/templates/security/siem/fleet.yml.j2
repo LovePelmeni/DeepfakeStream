@@ -1,0 +1,20 @@
+fleet:
+  enabled: true
+  server:
+    host: "0.0.0.0:8220"
+  elasticsearch:
+    hosts: ["{{ elasticsearch_host }}"]
+    username: "{{ elasticsearch_username }}"
+    password: "{{ elasticsearch_password }}"
+    service_token: "{{ fleet_server_service_token }}"
+  agent:
+    id: fleet-server
+    policy:
+      id: "{{ fleet_server_policy_id }}"
+
+outputs:
+  default:
+    type: elasticsearch
+    hosts: ["{{ elasticsearch_host }}"]
+    username: "{{ elasticsearch_username }}"
+    password: "{{ elasticsearch_password }}"

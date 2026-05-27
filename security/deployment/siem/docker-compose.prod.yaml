@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: elasticsearch
+    environment:
+      - cluster.name=production
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-kibanapass}
+      - ES_JAVA_OPTS=-Xms4g -Xmx4g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - elastic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "elastic:${ELASTIC_PASSWORD}", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - XPACK_FLEET_ENABLED=true
+      - XPACK_FLEET_AGENT_ID_VERIFICATION_ENABLED=false   # only if you must use HTTP; better to use HTTPS
+      - XPACK_FLEET_AGENTS_TLS_CHECK_DISABLED=true        # disable for testing; for production use TLS
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5601/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.0
+    container_name: logstash
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      - XPACK_MONITORING_ENABLED=false
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9600"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  fleet-server:
+    image: docker.elastic.co/beats/elastic-agent:8.15.0
+    container_name: fleet-server
+    environment:
+      - FLEET_SERVER_ENABLE=true
+      - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - FLEET_SERVER_ELASTICSEARCH_USERNAME=elastic
+      - FLEET_SERVER_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - FLEET_SERVER_SERVICE_TOKEN=${FLEET_SERVER_SERVICE_TOKEN}
+      - FLEET_SERVER_POLICY_ID=${FLEET_SERVER_POLICY_ID}
+    ports:
+      - "8220:8220"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    restart: unless-stopped
+    # For production, you may want to run Fleet Server with a dedicated policy and token
+    # You can generate the token via Kibana API or UI.
+
+networks:
+  elastic:
+    driver: bridge
+
+volumes:
+  es_data:

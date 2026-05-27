@@ -1,0 +1,28 @@
+---
+- hosts: cortex
+  become: yes
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name:
+          - curl
+          - wget
+          - unzip
+          - python3-pip
+        state: present
+        update_cache: yes
+
+    - name: Create cortex user
+      user:
+        name: cortex
+        shell: /bin/bash
+
+    - name: Download Cortex (Debian/Ubuntu .deb)
+      get_url:
+        url: "https://download.thehive-project.org/cortex-{{ cortex_version }}.deb"
+        dest: /tmp/cortex.deb
+
+    - name: Install Cortex package
+      apt:
+        deb: /tmp/cortex.deb

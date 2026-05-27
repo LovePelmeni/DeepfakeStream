@@ -1,0 +1,327 @@
+name: SOC Service CI - Reusable
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+        description: "One of: ips, siem, case_management, threat_intelligence"
+      environment:
+        required: true
+        type: string
+        description: "staging or production"
+      deploy_after_push:
+        required: false
+        type: boolean
+        default: false
+      image_tag_suffix:
+        required: false
+        type: string
+        default: ""
+      config_file_name:
+        required: false
+        type: string
+        description: "Infrastructure config file in S3"
+        default: "infrastructure-config.json"
+      push_to_registry:
+        required: false
+        type: boolean
+        default: true
+      run_security_scans:
+        required: false
+        type: boolean
+        default: true
+      fail_on_critical_vulns:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      OBJECT_STORAGE_ACCESS_KEY_ID:
+        required: true
+      OBJECT_STORAGE_SECRET_ACCESS_KEY:
+        required: true
+      CONFIG_BUCKET:
+        required: true
+      YC_CI_SA_JSON:
+        required: true
+      YANDEX_REGISTRY_ID:
+        required: true
+      OTEL_ENDPOINT:
+        required: false
+      # Optional: for testing you might need additional secrets like DB passwords
+      TEST_SECRETS:
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  security-events: write
+
+env:
+  TIMEOUT_SECONDS: "60"
+  OTEL_SERVICE_NAME: soc-${{ inputs.service_name }}-ci
+
+jobs:
+  build_test_scan:
+    name: Build, Test & Scan - ${{ inputs.service_name }} (${{ inputs.environment }})
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      test_duration_ms: ${{ steps.test.outputs.test_duration_ms }}
+      scan_duration_ms: ${{ steps.trivy_scan.outputs.scan_duration_ms }}
+      test_passed: ${{ steps.test.outputs.test_passed }}
+      scan_passed: ${{ steps.trivy_pass.outputs.scan_passed }}
+      registry_id: ${{ steps.infra.outputs.registry_id }}
+      repo_name: ${{ steps.infra.outputs.repo_name }}
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          docker system prune -af --volumes || true
+
+      - uses: actions/checkout@v4
+
+      - name: Get infrastructure configuration
+        id: infra
+        env:
+          ACCESS_KEY_ID: ${{ secrets.OBJECT_STORAGE_ACCESS_KEY_ID }}
+          SECRET_ACCESS_KEY: ${{ secrets.OBJECT_STORAGE_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ secrets.CONFIG_BUCKET }}
+          CONFIG_NAME: ${{ inputs.config_file_name }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            --user "${ACCESS_KEY_ID}:${SECRET_ACCESS_KEY}" \
+            --aws-sigv4 "aws:amz:ru-central1:s3" \
+            "https://storage.yandexcloud.net/${BUCKET}/${CONFIG_NAME}" \
+            -o config.json
+
+          jq empty config.json
+
+          REGISTRY_ID=$(jq -r '.registry.id' config.json)
+          REPO_NAME=$(jq -r ".services.\"${{ inputs.service_name }}\".repository // \"soc-${{ inputs.service_name }}\"" config.json)
+          DOCKERFILE_PATH=$(jq -r ".services.\"${{ inputs.service_name }}\".dockerfile // \"${{ inputs.service_name }}/Dockerfile\"" config.json)
+          COMPOSE_FILE=$(jq -r ".services.\"${{ inputs.service_name }}\".compose_dev // \"${{ inputs.service_name }}/docker-compose.dev.yaml\"" config.json)
+          HEALTH_ENDPOINT=$(jq -r ".services.\"${{ inputs.service_name }}\".health_check // \"/health\"" config.json)
+          HEALTH_PORT=$(jq -r ".services.\"${{ inputs.service_name }}\".health_port // 8080" config.json)
+
+          echo "registry_id=$REGISTRY_ID" >> "$GITHUB_OUTPUT"
+          echo "repo_name=$REPO_NAME" >> "$GITHUB_OUTPUT"
+          echo "dockerfile_path=$DOCKERFILE_PATH" >> "$GITHUB_ENV"
+          echo "compose_file=$COMPOSE_FILE" >> "$GITHUB_ENV"
+          echo "health_endpoint=$HEALTH_ENDPOINT" >> "$GITHUB_ENV"
+          echo "health_port=$HEALTH_PORT" >> "$GITHUB_ENV"
+
+      - name: Build service image
+        id: build
+        run: |
+          set -euo pipefail
+          START=$(date +%s%N)
+
+          SHORT_TAG="${GITHUB_SHA:0:12}"
+          if [ "${{ inputs.environment }}" = "staging" ]; then
+            FULL_TAG="staging-${SHORT_TAG}${{ inputs.image_tag_suffix }}"
+          else
+            FULL_TAG="${SHORT_TAG}${{ inputs.image_tag_suffix }}"
+          fi
+
+          docker build --platform linux/amd64 \
+            -f "${DOCKERFILE_PATH}" \
+            -t "${{ inputs.service_name }}:${FULL_TAG}" \
+            -t "${{ inputs.service_name }}:${{ inputs.environment }}-latest" \
+            .
+
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+
+          echo "image_tag=$FULL_TAG" >> "$GITHUB_OUTPUT"
+          echo "build_duration_ms=$DURATION" >> "$GITHUB_OUTPUT"
+
+      - name: Trivy vulnerability scan (CRITICAL only)
+        id: trivy_scan
+        if: ${{ inputs.run_security_scans }}
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: ${{ !inputs.fail_on_critical_vulns }}
+        with:
+          image-ref: ${{ inputs.service_name }}:${{ steps.build.outputs.image_tag }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+      - name: Mark scan passed
+        id: trivy_pass
+        if: ${{ inputs.run_security_scans }}
+        run: echo "scan_passed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare test environment
+        run: |
+          set -euo pipefail
+          # Create shared network if it doesn't exist (used by all services)
+          if ! docker network inspect soc_test_net >/dev/null 2>&1; then
+            docker network create soc_test_net
+          fi
+          # Create necessary volumes (if any)
+          # Copy configs from configs/ directory into test context if needed
+          mkdir -p /tmp/soc_test_configs
+          cp -r configs/* /tmp/soc_test_configs/ 2>/dev/null || true
+
+      - name: Test with docker compose
+        id: test
+        run: |
+          set -euo pipefail
+          START=$(date +%s%N)
+
+          # Use the dev compose file for testing
+          cd "$(dirname "${COMPOSE_FILE}")"
+          COMPOSE_BASENAME=$(basename "${COMPOSE_FILE}")
+
+          # Create test-specific .env from config.json (or use existing configs/*.env)
+          # For simplicity, we assume the config.json contains all needed env vars for the service
+          jq -r ".services.\"${{ inputs.service_name }}\".env // {} | to_entries[] | \"\\(.key)=\\(.value)\"" \
+            ../../config.json > .env.test
+
+          # Optionally merge with service-specific env file from configs/
+          if [ -f "../../configs/${{ inputs.service_name }}/config.env" ]; then
+            cat "../../configs/${{ inputs.service_name }}/config.env" >> .env.test
+          fi
+
+          # Start dependencies (if any) – e.g., postgres, redis
+          # The dev compose file should already define all required services.
+          docker compose -f "${COMPOSE_BASENAME}" --env-file .env.test up -d
+
+          # Wait for service to become healthy
+          OK=false
+          for i in $(seq 1 "${TIMEOUT_SECONDS}"); do
+            if curl -fsS "http://localhost:${HEALTH_PORT}${HEALTH_ENDPOINT}" >/dev/null 2>&1; then
+              OK=true
+              break
+            fi
+            # Also check container running status
+            if ! docker compose -f "${COMPOSE_BASENAME}" ps --services --filter "status=running" | grep -q "^${{ inputs.service_name }}$"; then
+              echo "❌ Container ${{ inputs.service_name }} is not running"
+              docker compose -f "${COMPOSE_BASENAME}" logs --tail=100
+              docker compose -f "${COMPOSE_BASENAME}" down -v
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$OK" != "true" ]; then
+            echo "❌ Health check timed out after ${TIMEOUT_SECONDS} seconds"
+            docker compose -f "${COMPOSE_BASENAME}" logs --tail=200
+            docker compose -f "${COMPOSE_BASENAME}" down -v
+            exit 1
+          fi
+
+          # Run additional integration tests if a test script is defined in config
+          TEST_CMD=$(jq -r ".services.\"${{ inputs.service_name }}\".test_command // \"\"" ../../config.json)
+          if [ -n "$TEST_CMD" ]; then
+            eval "$TEST_CMD"
+          fi
+
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+          echo "test_duration_ms=$DURATION" >> "$GITHUB_OUTPUT"
+          echo "test_passed=true" >> "$GITHUB_OUTPUT"
+
+          docker compose -f "${COMPOSE_BASENAME}" down -v
+
+      - name: Login to Yandex Container Registry
+        if: ${{ inputs.push_to_registry && github.ref == 'refs/heads/main' }}
+        env:
+          YC_SA_JSON: ${{ secrets.YC_CI_SA_JSON }}
+        run: |
+          set -euo pipefail
+          TOKEN="$(echo "$YC_SA_JSON" | jq -r '.access_token // empty')"
+          if [ -z "$TOKEN" ]; then
+            echo "❌ YC_CI_SA_JSON does not contain access_token"
+            exit 1
+          fi
+          echo "$TOKEN" | docker login --username oauth --password-stdin cr.yandex
+
+      - name: Push to registry
+        if: ${{ inputs.push_to_registry && github.ref == 'refs/heads/main' }}
+        env:
+          YANDEX_REGISTRY_ID: ${{ steps.infra.outputs.registry_id }}
+          REPO_NAME: ${{ steps.infra.outputs.repo_name }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.build.outputs.image_tag }}"
+          SERVICE="${{ inputs.service_name }}"
+
+          docker tag "${SERVICE}:${TAG}" \
+            "cr.yandex/${YANDEX_REGISTRY_ID}/${REPO_NAME}:${{ inputs.environment }}-${TAG}"
+          docker tag "${SERVICE}:${TAG}" \
+            "cr.yandex/${YANDEX_REGISTRY_ID}/${REPO_NAME}:${{ inputs.environment }}-latest"
+
+          docker push "cr.yandex/${YANDEX_REGISTRY_ID}/${REPO_NAME}:${{ inputs.environment }}-${TAG}"
+          docker push "cr.yandex/${YANDEX_REGISTRY_ID}/${REPO_NAME}:${{ inputs.environment }}-latest"
+
+      - name: Send telemetry
+        if: always()
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT }}
+          BUILD_MS: ${{ steps.build.outputs.build_duration_ms }}
+          TEST_MS: ${{ steps.test.outputs.test_duration_ms }}
+          SCAN_MS: ${{ steps.trivy_scan.outputs.scan_duration_ms }}
+          TEST_PASSED: ${{ steps.test.outputs.test_passed }}
+          SCAN_PASSED: ${{ steps.trivy_pass.outputs.scan_passed }}
+        run: |
+          if [ -z "${OTEL_ENDPOINT:-}" ]; then
+            echo "OTEL endpoint not set, skipping telemetry"
+            exit 0
+          fi
+          CI_STATUS="failure"
+          if [ "${{ job.status }}" = "success" ]; then
+            CI_STATUS="success"
+          fi
+          cat > ci_metrics.json <<EOF
+          {
+            "service": "${{ inputs.service_name }}",
+            "environment": "${{ inputs.environment }}",
+            "status": "${CI_STATUS}",
+            "build_ms": "${BUILD_MS:-0}",
+            "test_ms": "${TEST_MS:-0}",
+            "scan_ms": "${SCAN_MS:-0}",
+            "test_passed": "${TEST_PASSED:-false}",
+            "scan_passed": "${SCAN_PASSED:-false}",
+            "commit": "${GITHUB_SHA}"
+          }
+          EOF
+          curl -fsS -X POST "${OTEL_ENDPOINT}" \
+            -H "Content-Type: application/json" \
+            -d @ci_metrics.json || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f "${COMPOSE_FILE}" down -v 2>/dev/null || true
+          docker system prune -f || true
+
+  trigger_deployment:
+    name: Trigger CD if needed
+    runs-on: [self-hosted, linux, x64]
+    needs: build_test_scan
+    if: ${{ inputs.deploy_after_push && github.ref == 'refs/heads/main' && needs.build_test_scan.result == 'success' }}
+    steps:
+      - name: Call CD workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'soc-stack-cd-production.yml',
+              ref: 'main',
+              inputs: {
+                service: '${{ inputs.service_name }}',
+                deploy_version: '${{ needs.build_test_scan.outputs.image_tag }}',
+                environment: '${{ inputs.environment }}'
+              }
+            });

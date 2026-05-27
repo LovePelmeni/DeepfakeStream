@@ -1,0 +1,11 @@
+---
+- name: "Install Consul"
+  ansible.builtin.package:
+    name: "consul-{{ version }}"
+    state: present
+
+- name: "Install Consul Prometheus Exporter"
+  ansible.builtin.package:
+    name: "consul_exporter-{{ consul_exporter_version }}"
+    state: present
+  when: consul_exporter

@@ -1,0 +1,91 @@
+---
+- name: Deploy Elastic Agent and enroll with Fleet (or standalone)
+  hosts: all
+  become: yes
+  vars:
+    agent_version: "8.15.0"
+    agent_arch: "linux-x86_64"       # or linux-arm64 for ARM
+    elasticsearch_host: "http://localhost:9202"   # adjust to your ES address
+    fleet_enrollment_token: ""        # leave empty for standalone mode
+    fleet_server_url: "https://your-fleet-server:8220"  # if using Fleet
+
+  tasks:
+    - name: Install required packages (curl, systemd)
+      package:
+        name:
+          - curl
+          - systemd
+        state: present
+
+    - name: Download Elastic Agent tarball
+      get_url:
+        url: "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ agent_version }}-{{ agent_arch }}.tar.gz"
+        dest: "/tmp/elastic-agent-{{ agent_version }}.tar.gz"
+        checksum: "sha256:https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ agent_version }}-{{ agent_arch }}.tar.gz.sha512"
+
+    - name: Extract tarball to /opt
+      unarchive:
+        src: "/tmp/elastic-agent-{{ agent_version }}.tar.gz"
+        dest: /opt
+        remote_src: yes
+        creates: "/opt/elastic-agent-{{ agent_version }}-{{ agent_arch }}"
+
+    - name: Ensure symbolic link /opt/elastic-agent points to installed version
+      file:
+        src: "/opt/elastic-agent-{{ agent_version }}-{{ agent_arch }}"
+        dest: /opt/elastic-agent
+        state: link
+
+    - name: Install Elastic Agent as a service (if not already)
+      command: /opt/elastic-agent/elastic-agent install
+      args:
+        creates: /etc/systemd/system/elastic-agent.service
+
+    - name: Configure standalone mode (no Fleet) – write elastic-agent.yml
+      when: fleet_enrollment_token == ""
+      copy:
+        dest: /opt/elastic-agent/elastic-agent.yml
+        content: |
+          agent.logging.level: info
+          outputs:
+            elasticsearch:
+              hosts: ['{{ elasticsearch_host }}']
+              protocol: http
+              # username: elastic
+              # password: changeme
+          inputs:
+            - id: system-logs-1
+              type: system/syslog
+              streams:
+                - id: system-logs-stream
+                  paths:
+                    - /var/log/syslog
+                    - /var/log/auth.log
+            - id: system-metrics-1
+              type: system/metrics
+              metricsets: ["cpu", "memory", "network", "process"]
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart elastic-agent
+
+    - name: Enroll with Fleet (if token provided)
+      when: fleet_enrollment_token != ""
+      command: "/opt/elastic-agent/elastic-agent enroll {{ fleet_server_url }} --enrollment-token {{ fleet_enrollment_token }} --force"
+      args:
+        creates: /opt/elastic-agent/state/enrollment.yml
+      notify: restart elastic-agent
+
+    - name: Start and enable Elastic Agent service
+      systemd:
+        name: elastic-agent
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+  handlers:
+    - name: restart elastic-agent
+      systemd:
+        name: elastic-agent
+        state: restarted
+        daemon_reload: yes

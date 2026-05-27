@@ -1,0 +1,61 @@
+---
+name: "cub_oit_pe.consul.server"
+on:
+  push:
+    paths:
+      - 'roles/server/**'
+      - '.github/workflows/server.yml'
+      - 'tests/integration/molecule/role_server*/**'
+      - 'tests/integration/base.yml'
+  pull_request:
+    paths:
+      - 'roles/server/**'
+      - '.github/workflows/server.yml'
+      - 'tests/integration/molecule/role_server*/**'
+      - 'tests/integration/base.yml'
+jobs:
+  molecule:
+    runs-on: ubuntu-20.04
+    env:
+      PY_COLORS: 1
+      ANSIBLE_FORCE_COLOR: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        molecule_distro:
+          - distro: rhel8
+            image: registry.access.redhat.com/ubi8/ubi-init
+            command: /sbin/init
+        collection_role:
+          - role_server_default
+          - role_server_exporter
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v1
+        with:
+          path: ansible_collections/cub_oit_pe/consul
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.9
+
+      - name: Install Package Dependencies
+        run: |
+          sudo apt install apt-transport-https ca-certificates curl software-properties-common
+          python -m pip install --upgrade pip
+          pip install ansible ansible-lint molecule molecule-podman yamllint ansible-lint
+
+      - name: Run Role Test
+        env:
+          MOLECULE_COMMAND: ${{ matrix.molecule_distro.command }}
+          MOLECULE_DISTRO: ${{ matrix.molecule_distro.distro }}
+          MOLECULE_IMAGE: ${{ matrix.molecule_distro.image }}
+          RHSM_ACTIVATION_KEY: ${{ secrets.RHSM_ACTIVATION_KEY }}
+          RHSM_ORG_ID: ${{ secrets.RHSM_ORG_ID }}
+          RHSM_POOL_ID: ${{ secrets.RHSM_POOL_ID }}
+        run: >-
+          molecule --version &&
+          ansible --version &&
+          molecule --debug -c base.yml test -s ${{ matrix.collection_role }}
+        working-directory: tests/integration

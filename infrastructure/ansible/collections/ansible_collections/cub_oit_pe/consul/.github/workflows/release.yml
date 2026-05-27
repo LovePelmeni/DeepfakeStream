@@ -1,0 +1,37 @@
+---
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Tag and deploy release
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v2
+
+    - name: grab version tag
+      uses: mikefarah/yq@v4.4.1
+      with:
+        cmd: echo VERSION_TAG=$(yq eval .version galaxy.yml) >> $GITHUB_ENV
+
+    - name: Create Release
+      id: automatic-release
+      uses: actions/create-release@latest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.VERSION_TAG }}
+        release_name: "${{ env.VERSION_TAG }}"
+        draft: false
+        prerelease: false
+
+    - name: Deploy the collection
+      uses: artis3n/ansible_galaxy_collection@v2
+      with:
+        api_key: ${{ secrets.GALAXY_API_KEY }}
+

@@ -1,0 +1,70 @@
+version: '3.8'
+
+networks:
+  proxy:
+    name: proxy
+
+volumes:
+  traefik-logs:
+    name: traefik-logs
+  crowdsec-db:
+    name: crowdsec-db
+  crowdsec-config:
+    name: crowdsec-config
+
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: traefik-prod
+    restart: unless-stopped
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../configs/ips/traefik.prod.yml:/etc/traefik/traefik.yml:ro
+      - ../configs/ips/letsencrypt:/letsencrypt
+      - traefik-logs:/var/log/traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`vegamaps.ru`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.6.6
+    container_name: crowdsec-prod
+    restart: unless-stopped
+    environment:
+      COLLECTIONS: "crowdsecurity/linux crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/appsec-generic-rules"
+      CUSTOM_HOSTNAME: crowdsec
+      BOUNCER_KEY_PLUGIN: ${BOUNCER_KEY_PLUGIN}
+    networks:
+      - proxy
+    volumes:
+      - ../configs/ips/crowdsec.prod.yml:/etc/crowdsec/crowdsec.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-logs:/var/log/traefik:ro
+      - crowdsec-db:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+    depends_on:
+      - traefik
+
+  bouncer-traefik:
+    image: fbonalair/traefik-crowdsec-bouncer:0.4.0
+    container_name: bouncer-traefik-prod
+    restart: unless-stopped
+    environment:
+      CROWDSEC_BOUNCER_API_KEY: ${BOUNCER_KEY_PLUGIN}
+      CROWDSEC_AGENT_HOST: crowdsec:8080
+      LOG_LEVEL: info
+    networks:
+      - proxy
+    depends_on:
+      - crowdsec

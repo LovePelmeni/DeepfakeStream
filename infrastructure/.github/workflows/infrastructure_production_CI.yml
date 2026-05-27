@@ -1,0 +1,171 @@
+name: Terraform Production CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'modules/**'
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.6.0'
+  WORKING_DIR: 'terraform/prod'
+  # Production credentials (no prefix)
+  YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+  YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+  YC_TOKEN: ${{ secrets.YC_TOKEN }}
+  TF_VAR_yandex_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+  TF_VAR_yandex_cloud_folder_id: ${{ secrets.YC_FOLDER_ID }}
+  TF_VAR_access_key: ${{ secrets.YC_ACCESS_KEY }}
+  TF_VAR_secret_key: ${{ secrets.YC_SECRET_KEY }}
+  TF_VAR_bastion_ssh_public_key: ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+  TF_VAR_backend_ssh_public_key: ${{ secrets.BACKEND_SSH_PUBLIC_KEY }}
+  TF_VAR_frontend_ssh_public_key: ${{ secrets.FRONTEND_SSH_PUBLIC_KEY }}
+  TF_VAR_ml_ssh_public_key: ${{ secrets.ML_SSH_PUBLIC_KEY }}
+  TF_VAR_ws_ssh_public_key: ${{ secrets.WS_SSH_PUBLIC_KEY }}
+
+jobs:
+  plan-and-approve:
+    name: Plan, Validate & Approve (Prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # ---------- 1. Init ----------
+      - name: Terraform Init
+        run: cd ${{ env.WORKING_DIR }} && terraform init
+
+      # ---------- Optional: Format check (non‑blocking) ----------
+      - name: Terraform Format
+        run: cd ${{ env.WORKING_DIR }} && terraform fmt -check
+        continue-on-error: true
+
+      # ---------- 2. Validate (syntax + logic) ----------
+      - name: Terraform Validate
+        run: cd ${{ env.WORKING_DIR }} && terraform validate
+
+      # ---------- 3. Checkov (best practices) – soft fail (Docker) ----------
+      - name: Checkov – Best Practices Scan (soft)
+        id: checkov_best
+        run: |
+          docker run --rm \
+            -v $(pwd):/workspace \
+            bridgecrew/checkov \
+            -d /workspace/${{ env.WORKING_DIR }} \
+            --external-checks-dir /workspace/checkov_policies \
+            --framework terraform \
+            --soft-fail \
+            --quiet \
+            --output cli
+        continue-on-error: true
+
+      # ---------- 4. Terraform Plan ----------
+      - name: Terraform Plan
+        id: plan
+        run: cd ${{ env.WORKING_DIR }} && terraform plan -no-color -out=tfplan.binary
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod
+          path: ${{ env.WORKING_DIR }}/tfplan.binary
+          retention-days: 1
+
+      # ---------- 5. Checkov (misconfigurations) – hard fail (Docker) ----------
+      - name: Checkov – Misconfiguration Scan (hard)
+        id: checkov_misconfig
+        run: |
+          docker run --rm \
+            -v $(pwd):/workspace \
+            bridgecrew/checkov \
+            -d /workspace/${{ env.WORKING_DIR }} \
+            --external-checks-dir /workspace/checkov_policies \
+            --framework terraform \
+            --quiet \
+            --output cli \
+            --hard-fail-on HIGH
+
+      # ---------- 6. Manual Approval (2 approvers) ----------
+      - name: Request manual approval
+        uses: trstringer/manual-approval@v1
+        with:
+          approvers: "lead-engineer,security-lead,cto"
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          minimum-approvals: 2
+          issue-title: "🚨 Deploy to PRODUCTION?"
+          issue-body: "Terraform plan succeeded and misconfiguration scan passed. Please approve the production deployment."
+          exclude-workflow-initiator-as-approver: true
+
+      # ---------- Output summary ----------
+      - name: Plan summary (for logs)
+        run: |
+          echo "Best practices scan: ${{ steps.checkov_best.outcome }}"
+          echo "Misconfiguration scan: ${{ steps.checkov_misconfig.outcome }}"
+          echo "Plan ready for apply"
+
+  apply:
+    name: Terraform Apply (Prod)
+    runs-on: ubuntu-latest
+    needs: plan-and-approve
+    environment: production
+    concurrency: terraform-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-prod
+          path: ${{ env.WORKING_DIR }}
+
+      - name: Configure Yandex Cloud CLI
+        uses: yandex-cloud/yc-github-action@v1
+        with:
+          token: ${{ secrets.YC_TOKEN }}
+          cloud-id: ${{ secrets.YC_CLOUD_ID }}
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+
+      - name: Terraform Init
+        run: cd ${{ env.WORKING_DIR }} && terraform init
+
+      - name: Terraform Apply
+        id: apply
+        run: cd ${{ env.WORKING_DIR }} && terraform apply -auto-approve tfplan.binary
+
+      - name: Generate and Upload Infrastructure Config
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          CONFIG_BUCKET=$(terraform output -raw config_bucket_name)
+          cat > infrastructure-config.json << EOF
+          {
+            "version": "${{ github.sha }}",
+            "updated_at": "$(date -Iseconds)",
+            "environment": "prod",
+            "registry": $(terraform output -json registry 2>/dev/null || echo '{}'),
+            "instances": $(terraform output -json instances 2>/dev/null || echo '{}'),
+            "storage": $(terraform output -json storage 2>/dev/null || echo '{}'),
+            "secrets": $(terraform output -json secrets 2>/dev/null || echo '{}'),
+            "service_accounts": $(terraform output -json service_accounts 2>/dev/null || echo '{}'),
+            "network": $(terraform output -json network 2>/dev/null || echo '{}')
+          }
+          EOF
+          yc storage object upload \
+            --bucket $CONFIG_BUCKET \
+            --key infrastructure-config.json \
+            --file infrastructure-config.json \
+            --content-type application/json
+          echo "✅ Config uploaded to $CONFIG_BUCKET"
+
+      - name: Notify Success
+        run: echo "✅ Production deployment complete"

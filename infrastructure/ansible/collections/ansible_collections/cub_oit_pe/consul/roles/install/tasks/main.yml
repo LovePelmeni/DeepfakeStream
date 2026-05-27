@@ -1,0 +1,11 @@
+---
+- name: "Prepare Package Repositories"
+  include_tasks: repositories.yml
+
+
+- name: "Install Consul Packages"
+  include_tasks: packages.yml
+
+- name: "Versionlock Consul Packages"
+  include_tasks: versionlock.yml
+  when: version_lock

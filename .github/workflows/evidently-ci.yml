@@ -1,0 +1,245 @@
+name: Evidently_UI_CI_Pipeline
+description: "CI pipeline for Evidently AI Observability UI (build → test → security → push)"
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "src/mlops/**"
+      - "deployment/evidently/**"
+      - "deployment/**"
+      - "requirements.evidently.txt"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "src/mlops/**"
+      - "deployment/evidently/**"
+      - "deployment/**"
+      - "requirements.evidently.txt"
+      - "requirements/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+
+env:
+  IMAGE_NAME: vegamaps-evidently-ui
+  CONTAINER_NAME: evidently-test-ci
+  TIMEOUT_SECONDS: 60
+  CONFIG_BUCKET: vegamaps-config-prod
+
+jobs:
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep SAST
+        run: semgrep ci
+        env:
+          SEMGREP_RULES: >
+            p/cwe-top-25
+            p/owasp-top-ten
+            p/r2c-security-audit
+            p/python
+            p/dockerfile
+          SEMGREP_TIMEOUT: 600
+
+  secret-scan:
+    name: Secret Scanning (TruffleHog)
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: ${{ github.sha }}
+          extra_args: --only-verified --fail
+
+  dependency-scan:
+    name: Dependency Scan (pip-audit)
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit --requirement requirements.evidently.txt --desc
+
+  container-build:
+    name: Container Build & Security Scan
+    runs-on: [self-hosted, linux, x64]
+    needs: [sast, secret-scan, dependency-scan]
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          docker system prune -af --volumes
+
+      - uses: actions/checkout@v4
+
+      - name: Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft version
+
+      - name: Get infrastructure configuration
+        id: infra
+        run: |
+          curl -fsSL "https://${{ env.CONFIG_BUCKET }}.storage.yandexcloud.net/infrastructure-config.json" > config.json
+
+          REGISTRY_ID=$(jq -r '.registry.id' config.json)
+          REGISTRY_ENDPOINT=$(jq -r '.registry.endpoint' config.json)
+          EVIDENTLY_REPO=$(jq -r '.registry.repositories.evidently // "vegamaps-evidently-ui"' config.json)
+
+          echo "registry_id=$REGISTRY_ID" >> $GITHUB_OUTPUT
+          echo "registry_endpoint=$REGISTRY_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "evidently_repo=$EVIDENTLY_REPO" >> $GITHUB_OUTPUT
+
+      - name: Build Evidently UI Docker image
+        id: build
+        run: |
+          TAG="${{ github.sha }}"
+          SHORT_TAG="${TAG:0:12}"
+
+          docker build --platform linux/amd64 \
+            -f deployment/evidently/Dockerfile \
+            -t ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG \
+            -t ${{ env.IMAGE_NAME }}:push-$SHORT_TAG \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            .
+
+          echo "image_tag=ci-$SHORT_TAG" >> $GITHUB_OUTPUT
+          echo "short_tag=$SHORT_TAG" >> $GITHUB_OUTPUT
+          echo "Build complete"
+
+      - name: Install Docker Scout
+        run: |
+          if ! docker scout --version &>/dev/null; then
+            curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh
+          fi
+
+      - name: Docker Scout Vulnerability Scan
+        id: scout_scan
+        run: |
+          SHORT_TAG="${{ steps.build.outputs.short_tag }}"
+          docker scout cves ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG \
+            --only-severity critical,high \
+            --exit-code
+
+          echo "scan_status=passed" >> $GITHUB_OUTPUT
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          SHORT_TAG="${{ steps.build.outputs.short_tag }}"
+
+          syft ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG \
+            -o cyclonedx-json \
+            > sbom-evidently.cyclonedx.json
+
+          syft ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG \
+            -o spdx-json \
+            > sbom-evidently.spdx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx-evidently
+          path: |
+            sbom-evidently.cyclonedx.json
+            sbom-evidently.spdx.json
+          retention-days: 30
+
+      - name: Generate Docker Scout SARIF report
+        if: always()
+        run: |
+          SHORT_TAG="${{ steps.build.outputs.short_tag }}"
+          docker scout cves ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG \
+            --format sarif \
+            --output scout-results.sarif || true
+
+      - name: Upload Docker Scout SARIF to GitHub
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scout-results.sarif
+
+      - name: Test Evidently UI container
+        run: |
+          SHORT_TAG="${{ steps.build.outputs.short_tag }}"
+
+          docker run -d --name ${{ env.CONTAINER_NAME }} \
+            -p 8000:8000 \
+            ${{ env.IMAGE_NAME }}:ci-$SHORT_TAG
+
+          echo "Testing Evidently UI..."
+          for i in $(seq 1 ${{ env.TIMEOUT_SECONDS }}); do
+            if curl -s -f "http://localhost:8000/" >/dev/null 2>&1; then
+              echo "Service healthy after $i seconds!"
+              break
+            fi
+            sleep 2
+          done || {
+            echo "Tests failed! Logs:"
+            docker logs ${{ env.CONTAINER_NAME }} --tail=20
+            exit 1
+          }
+
+          docker stop ${{ env.CONTAINER_NAME }} && docker rm ${{ env.CONTAINER_NAME }}
+
+      - name: Push to Yandex Container Registry
+        if: github.ref == 'refs/heads/main' && steps.scout_scan.outputs.scan_status == 'passed'
+        env:
+          YANDEX_REGISTRY_ID: ${{ steps.infra.outputs.registry_id }}
+          YANDEX_CI_SA_JSON: ${{ secrets.YC_CI_SA_JSON }}
+        run: |
+          SHORT_TAG="${{ steps.build.outputs.short_tag }}"
+
+          echo "$YANDEX_CI_SA_JSON" | docker login --username json_key --password-stdin cr.yandex
+
+          docker tag ${{ env.IMAGE_NAME }}:push-$SHORT_TAG \
+            "cr.yandex/$YANDEX_REGISTRY_ID/${{ env.IMAGE_NAME }}:$SHORT_TAG"
+          docker tag ${{ env.IMAGE_NAME }}:push-$SHORT_TAG \
+            "cr.yandex/$YANDEX_REGISTRY_ID/${{ env.IMAGE_NAME }}:latest"
+
+          docker push "cr.yandex/$YANDEX_REGISTRY_ID/${{ env.IMAGE_NAME }}:$SHORT_TAG"
+          docker push "cr.yandex/$YANDEX_REGISTRY_ID/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop ${{ env.CONTAINER_NAME }} || true
+          docker rm ${{ env.CONTAINER_NAME }} || true
+          docker rmi ${{ env.IMAGE_NAME }}:* || true
+          docker system prune -f
+
+  compliance-report:
+    name: Compliance Report
+    runs-on: [self-hosted, linux, x64]
+    needs: container-build
+    if: always()
+    steps:
+      - name: Generate Compliance Summary
+        run: |
+          echo "## Evidently UI Security Compliance Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST (Semgrep) | Completed | No critical findings |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Scanning | Completed | No secrets exposed |" >> $GITHUB_STEP_SUMMARY

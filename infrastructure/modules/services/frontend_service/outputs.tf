@@ -1,0 +1,45 @@
+output "instance_id" {
+  description = "ID of the compute instance"
+  value       = yandex_compute_instance.this.id
+}
+
+output "instance_name" {
+  description = "Name of the compute instance"
+  value       = yandex_compute_instance.this.name
+}
+
+output "instance_fqdn" {
+  description = "FQDN of the instance"
+  value       = yandex_compute_instance.this.fqdn
+}
+
+output "private_ip" {
+  description = "Private IP address"
+  value       = yandex_compute_instance.this.network_interface[0].ip_address
+}
+
+output "public_ip" {
+  description = "Public IP address (if assign_public_ip = true)"
+  value       = yandex_compute_instance.this.network_interface[0].nat_ip_address
+}
+
+# SSH connection information
+output "ssh_user" {
+  description = "SSH username"
+  value       = var.ssh_user
+}
+
+output "ssh_public_key" {
+  description = "SSH public key injected"
+  value       = var.ssh_public_key
+}
+
+output "ssh_command_example" {
+  description = "Example SSH command (replace <private-key-path> with your private key file)"
+  value       = "ssh -i <private-key-path> ${var.ssh_user}@${yandex_compute_instance.this.network_interface[0].nat_ip_address != "" ? yandex_compute_instance.this.network_interface[0].nat_ip_address : yandex_compute_instance.this.network_interface[0].ip_address}"
+}
+
+output "zone" {
+  description = "Availability zone of the instance"
+  value       = var.zone
+}

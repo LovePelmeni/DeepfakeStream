@@ -1,0 +1,62 @@
+name: Deploy to Staging SIEM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Rule version to deploy (e.g., build-123, latest, or v2025-05-23)'
+        required: true
+        default: 'latest'
+  push:
+    tags: ['v*']    # optional: deploy staging when a new tag is pushed
+
+env:
+  S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+  STAGING_KIBANA_HOST: ${{ secrets.STAGING_KIBANA_HOST }}
+  STAGING_KIBANA_API_KEY: ${{ secrets.STAGING_KIBANA_API_KEY }}
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Download rules from S3
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          if [ "$VERSION" == "latest" ]; then
+            aws s3 cp s3://${S3_BUCKET}/releases/latest/detection-rules-latest.tar.gz .
+            tar -xzf detection-rules-latest.tar.gz
+          else
+            # strip 'v' prefix if present (tags like v2025-05-23)
+            VERSION_CLEAN=${VERSION#v}
+            aws s3 cp s3://${S3_BUCKET}/releases/${VERSION_CLEAN}/detection-rules-${VERSION_CLEAN}.tar.gz .
+            tar -xzf detection-rules-${VERSION_CLEAN}.tar.gz
+          fi
+          echo "Downloaded rules into ./rules"
+
+      - name: Deploy to staging Kibana
+        run: |
+          python scripts/deploy_to_elastic.py \
+            --host "${{ env.STAGING_KIBANA_HOST }}" \
+            --api-key "${{ env.STAGING_KIBANA_API_KEY }}" \
+            --rules-dir ./rules \
+            --action upsert
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.25
+        with:
+          payload: |
+            {
+              "text": "Staging detection rules deployed!\nVersion: ${{ github.event.inputs.version || github.ref_name }}\nEnvironment: staging"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

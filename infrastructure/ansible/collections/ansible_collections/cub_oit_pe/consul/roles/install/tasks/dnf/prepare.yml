@@ -1,0 +1,27 @@
+---
+
+- name: "Add Hashicorp Yum Repository"
+  ansible.builtin.yum_repository:
+    name: hashicorp
+    description: "Hashicorp Stable - $basearch"
+    file: hashicorp
+    baseurl: https://rpm.releases.hashicorp.com/RHEL/$releasever/$basearch/stable
+    gpgkey: https://rpm.releases.hashicorp.com/gpg
+    gpgcheck: yes
+    repo_gpgcheck: yes
+    enabled: yes
+    sslverify: yes
+    sslcacert: /etc/pki/tls/certs/ca-bundle.crt
+    metadata_expire: '300'
+
+- name: "Add Prometheus YUM/DNF Repository"
+  ansible.builtin.yum_repository:
+    name: prometheus-rpm
+    description: Prometheus RPM repo
+    file: prometheus-rpm
+    baseurl: https://packagecloud.io/prometheus-rpm/release/el/$releasever/$basearch
+    gpgcheck: no
+    repo_gpgcheck: yes
+    gpgkey: https://packagecloud.io/prometheus-rpm/release/gpgkey
+    metadata_expire: "300"
+  when: consul_exporter

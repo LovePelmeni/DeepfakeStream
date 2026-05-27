@@ -1,0 +1,4 @@
+---
+- name: "Run Consul Configuration Validation"
+  ansible.builtin.command:
+    cmd: "consul validate {{ configuration_location }}"

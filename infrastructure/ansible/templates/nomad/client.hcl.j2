@@ -1,0 +1,16 @@
+datacenter = "{{ nomad_datacenter }}"
+data_dir = "/var/lib/nomad"
+bind_addr = "0.0.0.0"
+
+client {
+  enabled = true
+  servers = ["{{ nomad_servers_list | join('", "') }}"]
+}
+
+# optional: fingerprint Docker, etc.
+plugin "docker" {
+  config {
+    allow_privileged = false
+    volumes_enabled  = true
+  }
+}

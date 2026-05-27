@@ -1,0 +1,259 @@
+name: SOC Stack CD - Reusable
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "staging or production"
+      deploy_version:
+        required: true
+        type: string
+        description: "Image tag or commit SHA to deploy"
+      perform_rollback_on_failure:
+        required: false
+        type: boolean
+        default: true
+      config_file_name:
+        required: false
+        type: string
+        description: "Infrastructure config file in S3 (e.g., infrastructure-production-config.soc.json)"
+        default: "infrastructure-config.json"
+    secrets:
+      OBJECT_STORAGE_ACCESS_KEY_ID:
+        required: true
+      OBJECT_STORAGE_SECRET_ACCESS_KEY:
+        required: true
+      CONFIG_BUCKET:
+        required: true
+      YC_CD_SA_JSON:
+        required: true
+      YANDEX_VM_SSH_KEY:
+        required: true
+      YANDEX_REGISTRY_ID:
+        required: true
+      OTEL_ENDPOINT:
+        required: false
+      OTEL_AUTH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-soc-stack:
+    name: Deploy SOC Stack - ${{ inputs.environment }}
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get infrastructure configuration
+        id: infra
+        env:
+          ACCESS_KEY_ID: ${{ secrets.OBJECT_STORAGE_ACCESS_KEY_ID }}
+          SECRET_ACCESS_KEY: ${{ secrets.OBJECT_STORAGE_SECRET_ACCESS_KEY }}
+          BUCKET: ${{ secrets.CONFIG_BUCKET }}
+          CONFIG_NAME: ${{ inputs.config_file_name }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            --user "${ACCESS_KEY_ID}:${SECRET_ACCESS_KEY}" \
+            --aws-sigv4 "aws:amz:ru-central1:s3" \
+            "https://storage.yandexcloud.net/${BUCKET}/${CONFIG_NAME}" \
+            -o config.json
+
+          jq empty config.json
+
+          VM_IP=$(jq -r '.vm_ip // empty' config.json)
+          VM_USER=$(jq -r '.vm_user // empty' config.json)
+          SSH_PORT=$(jq -r '.ssh_port // 22' config.json)
+          NETWORK_NAME=$(jq -r '.network_name // "soc_prod"' config.json)
+          CONFIG_BASE64=$(base64 -w0 config.json)
+
+          if [[ -z "$VM_IP" || -z "$VM_USER" ]]; then
+            echo "❌ Missing vm_ip or vm_user in config.json"
+            exit 1
+          fi
+
+          {
+            echo "vm_ip=$VM_IP"
+            echo "vm_user=$VM_USER"
+            echo "ssh_port=$SSH_PORT"
+            echo "config_base64=$CONFIG_BASE64"
+            echo "network_name=$NETWORK_NAME"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Deploy SOC Stack
+        uses: appleboy/ssh-action@v1
+        env:
+          CONFIG_BASE64: ${{ steps.infra.outputs.config_base64 }}
+          REPO_URL: https://${{ github.repository }}.git
+          YANDEX_CD_SA_JSON: ${{ secrets.YC_CD_SA_JSON }}
+          YANDEX_REGISTRY_ID: ${{ secrets.YANDEX_REGISTRY_ID }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          PERFORM_ROLLBACK_ON_FAILURE: ${{ inputs.perform_rollback_on_failure }}
+          DEPLOY_VERSION: ${{ inputs.deploy_version }}
+          NETWORK_NAME: ${{ steps.infra.outputs.network_name }}
+        with:
+          host: ${{ steps.infra.outputs.vm_ip }}
+          username: ${{ steps.infra.outputs.vm_user }}
+          key: ${{ secrets.YANDEX_VM_SSH_KEY }}
+          port: ${{ steps.infra.outputs.ssh_port }}
+          envs: CONFIG_BASE64,REPO_URL,YANDEX_CD_SA_JSON,YANDEX_REGISTRY_ID,ENVIRONMENT,PERFORM_ROLLBACK_ON_FAILURE,DEPLOY_VERSION,NETWORK_NAME
+          script: |
+            set -euo pipefail
+
+            APP_DIR="soc_stack"
+            DEPLOY_DIR="$HOME/$APP_DIR"
+            CONFIG_FILE="$DEPLOY_DIR/config.json"
+            mkdir -p "$DEPLOY_DIR"
+            echo "${CONFIG_BASE64:?CONFIG_BASE64 is missing}" | base64 -d > "$CONFIG_FILE"
+
+            cd ~
+            if [ ! -d "$APP_DIR" ]; then
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$DEPLOY_DIR"
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            if [[ -z "${DEPLOY_VERSION:-}" ]]; then
+              echo "❌ DEPLOY_VERSION is empty"
+              exit 1
+            fi
+
+            if [[ -z "${YANDEX_REGISTRY_ID:-}" ]]; then
+              echo "❌ YANDEX_REGISTRY_ID is empty"
+              exit 1
+            fi
+
+            echo "$YANDEX_CD_SA_JSON" | docker login --username json_key --password-stdin cr.yandex
+
+            # Create shared network if missing
+            if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+              docker network create "$NETWORK_NAME" || true
+            fi
+
+            # Define services in order (traefik/crowdsec must come first if part of ips)
+            # The config.json defines an array "services" with name, compose_file, env_file_template, health_check_url, health_check_port
+            SERVICES=$(jq -r '.services[] | @base64' "$CONFIG_FILE")
+
+            # Backup existing env files before any change
+            for service_b64 in $SERVICES; do
+              service_json=$(echo "$service_b64" | base64 -d)
+              name=$(echo "$service_json" | jq -r '.name')
+              env_file="$DEPLOY_DIR/.env.$name.$ENVIRONMENT"
+              if [ -f "$env_file" ]; then
+                cp "$env_file" "$env_file.bak"
+              fi
+            done
+
+            deploy_failed=false
+            rollback_triggered=false
+
+            # Deploy each service in defined order
+            for service_b64 in $SERVICES; do
+              service_json=$(echo "$service_b64" | base64 -d)
+              name=$(echo "$service_json" | jq -r '.name')
+              compose_file=$(echo "$service_json" | jq -r '.compose_file')
+              env_template=$(echo "$service_json" | jq -r '.env_file_template')
+              health_check_url=$(echo "$service_json" | jq -r '.health_check_url // ""')
+              health_check_port=$(echo "$service_json" | jq -r '.health_check_port // ""')
+              env_file="$DEPLOY_DIR/.env.$name.$ENVIRONMENT"
+
+              echo "🔧 Deploying $name..."
+
+              # Render .env file from template and config.json
+              # We assume the template uses variable references like {{ .some.key }} or we generate directly from jq
+              # Simpler: generate env from config.json using jq with service-specific prefix
+              # For demonstration, we call a helper script that writes to env_file
+              cat >/tmp/render_soc_env.jq <<'JQ'
+              # Example: for service "ips", we want IPS_IMAGE, IPS_PORT, etc.
+              # The config.json should contain a mapping for each service under "service_envs"
+              # This script assumes "service_envs.<service_name>" object with key=value pairs.
+              def render(service):
+                .service_envs[service] // {} | to_entries[] | "\(.key)=\(.value)";
+              render($service_name)
+              JQ
+
+              jq -r --arg service_name "$name" -f /tmp/render_soc_env.jq "$CONFIG_FILE" > "$env_file"
+
+              # Add global variables (like registry, version)
+              echo "REGISTRY_ID=${YANDEX_REGISTRY_ID}" >> "$env_file"
+              echo "DEPLOY_VERSION=${DEPLOY_VERSION}" >> "$env_file"
+              echo "NETWORK_NAME=${NETWORK_NAME}" >> "$env_file"
+
+              # Pull images and deploy
+              docker compose -f "$compose_file" --env-file "$env_file" pull
+              docker compose -f "$compose_file" --env-file "$env_file" up -d
+
+              # Health check if endpoint provided
+              if [[ -n "$health_check_url" && -n "$health_check_port" ]]; then
+                echo "⏳ Waiting for $name health check on port $health_check_port"
+                healthy=false
+                for i in $(seq 1 15); do
+                  if curl -fsS "http://localhost:${health_check_port}${health_check_url}" >/dev/null 2>&1; then
+                    healthy=true
+                    break
+                  fi
+                  sleep 5
+                done
+                if [[ "$healthy" != "true" ]]; then
+                  echo "❌ Health check failed for $name"
+                  deploy_failed=true
+                  break
+                fi
+                echo "✅ $name is healthy"
+              fi
+            done
+
+            if [[ "$deploy_failed" == "true" ]]; then
+              echo "❌ Deployment failed"
+              if [[ "$PERFORM_ROLLBACK_ON_FAILURE" == "true" ]]; then
+                echo "🔄 Rolling back..."
+                rollback_triggered=true
+                # Restore all backed up env files and redeploy
+                for service_b64 in $SERVICES; do
+                  service_json=$(echo "$service_b64" | base64 -d)
+                  name=$(echo "$service_json" | jq -r '.name')
+                  env_file="$DEPLOY_DIR/.env.$name.$ENVIRONMENT"
+                  backup_file="$env_file.bak"
+                  if [[ -f "$backup_file" ]]; then
+                    mv "$backup_file" "$env_file"
+                  fi
+                  compose_file=$(echo "$service_json" | jq -r '.compose_file')
+                  echo "🔄 Restarting $name with previous configuration"
+                  docker compose -f "$compose_file" --env-file "$env_file" up -d
+                done
+                echo "✅ Rollback completed"
+              fi
+              exit 1
+            fi
+
+            # Cleanup: remove backups and old images
+            for service_b64 in $SERVICES; do
+              service_json=$(echo "$service_b64" | base64 -d)
+              name=$(echo "$service_json" | jq -r '.name')
+              rm -f "$DEPLOY_DIR/.env.$name.$ENVIRONMENT.bak"
+            done
+            docker image prune -f
+            rm -f "$CONFIG_FILE"
+            echo "✅ SOC stack deployed successfully"
+
+      - name: Send deployment telemetry
+        if: always()
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT }}
+          OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN }}
+          DEPLOY_STATUS: ${{ job.status }}
+          DEPLOY_VERSION: ${{ inputs.deploy_version }}
+        run: |
+          if [ -n "${OTEL_ENDPOINT:-}" ]; then
+            curl_args=(-fsS -X POST "$OTEL_ENDPOINT/v1/metrics" -H "Content-Type: application/json")
+            [ -n "${OTEL_AUTH_TOKEN:-}" ] && curl_args+=(-H "Authorization: Bearer $OTEL_AUTH_TOKEN")
+            curl "${curl_args[@]}" -d "{\"environment\":\"${{ inputs.environment }}\",\"version\":\"${DEPLOY_VERSION}\",\"status\":\"${DEPLOY_STATUS}\"}" || true
+          fi

@@ -1,0 +1,398 @@
+name: ML Service CD - Staging
+
+on:
+  repository_dispatch:
+    types: [deploy-to-staging]
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: "Service to deploy"
+        required: true
+        type: choice
+        options:
+          - stockpile-volume
+          - hotspot-detection
+          - object-detection
+          - object-segmentation
+          - d3-reconstruction
+          - orthomosaic
+          - overlap-analysis
+      service_version:
+        description: "Service version to deploy"
+        required: true
+        type: string
+      model_version:
+        description: "Model version"
+        required: false
+        default: "latest"
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+env:
+  CONFIG_BUCKET: vegamaps-infra-state-bucket
+  CONFIG_FILE: infrastructure-staging-config.ml.json
+  DOCKER_COMPOSE_FILE: deployment/production/docker-compose.prod.yml
+  ML_SERVICE_API_VERSION: ${{ vars.ML_SERVICE_API_VERSION || 'v1' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve-inputs:
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      service_name: ${{ steps.resolve.outputs.service_name }}
+      service_version: ${{ steps.resolve.outputs.service_version }}
+      model_version: ${{ steps.resolve.outputs.model_version }}
+    steps:
+      - name: Resolve inputs
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "service_name=${{ github.event.client_payload.service_name }}" >> "$GITHUB_OUTPUT"
+            echo "service_version=${{ github.event.client_payload.service_version }}" >> "$GITHUB_OUTPUT"
+            echo "model_version=${{ github.event.client_payload.model_version || 'latest' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "service_name=${{ inputs.service_name }}" >> "$GITHUB_OUTPUT"
+            echo "service_version=${{ inputs.service_version }}" >> "$GITHUB_OUTPUT"
+            echo "model_version=${{ inputs.model_version || 'latest' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  load-config:
+    needs: resolve-inputs
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      registry_id: ${{ steps.extract.outputs.registry_id }}
+      registry_repository: ${{ steps.extract.outputs.registry_repository }}
+      hosts_json: ${{ steps.extract.outputs.hosts_json }}
+      host_user: ${{ steps.extract.outputs.host_user }}
+      host_port: ${{ steps.extract.outputs.host_port }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate YC service account secret
+        env:
+          YC_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${YC_SA_JSON:-}" ]; then
+            echo "❌ YC_STAGING_SA_JSON secret is empty"
+            exit 1
+          fi
+          echo "$YC_SA_JSON" | jq -e '.id and .service_account_id and .private_key' >/dev/null
+
+      - name: Install Yandex Cloud CLI
+        run: |
+          set -euo pipefail
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+
+      - name: Get IAM token
+        id: iam_token
+        env:
+          YC_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/yandex-cloud/bin:$PATH"
+          printf '%s' "$YC_SA_JSON" > /tmp/sa-key.json
+          yc config set service-account-key /tmp/sa-key.json >/dev/null
+          IAM_TOKEN="$(yc iam create-token)"
+          if [ -z "$IAM_TOKEN" ]; then
+            echo "Failed to obtain IAM token" >&2
+            exit 1
+          fi
+          echo "iam_token=$IAM_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Get infrastructure configuration
+        id: extract
+        env:
+          CONFIG_BUCKET: ${{ env.CONFIG_BUCKET }}
+          CONFIG_FILE: ${{ env.CONFIG_FILE }}
+          IAM_TOKEN: ${{ steps.iam_token.outputs.iam_token }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -H "Authorization: Bearer ${IAM_TOKEN}" \
+            "https://storage.yandexcloud.net/${CONFIG_BUCKET}/${CONFIG_FILE}" \
+            -o config.json
+
+          jq empty config.json
+
+          REGISTRY_ID="$(jq -r '.registry.id // empty' config.json)"
+          REGISTRY_REPOSITORY="$(jq -r '.registry.repository // "vegamaps-ml-service"' config.json)"
+          HOSTS_JSON="$(jq -c '.instances.ml_staging.private_ips // empty' config.json)"
+          HOST_USER="$(jq -r '.instances.ml_staging.user // "ubuntu"' config.json)"
+          HOST_PORT="$(jq -r '.instances.ml_staging.ssh_port // 22' config.json)"
+
+          if [ -z "$REGISTRY_ID" ]; then
+            echo "registry.id is missing in config.json"
+            exit 1
+          fi
+
+          if [ -z "$HOSTS_JSON" ] || [ "$HOSTS_JSON" = "null" ]; then
+            echo "instances.ml_staging.private_ips is missing in config.json"
+            exit 1
+          fi
+
+          {
+            echo "registry_id=$REGISTRY_ID"
+            echo "registry_repository=$REGISTRY_REPOSITORY"
+            echo "hosts_json=$HOSTS_JSON"
+            echo "host_user=$HOST_USER"
+            echo "host_port=$HOST_PORT"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy-staging:
+    needs: [resolve-inputs, load-config]
+    strategy:
+      fail-fast: false
+      matrix:
+        host_ip: ${{ fromJson(needs.load-config.outputs.hosts_json) }}
+    runs-on: [self-hosted, linux, x64]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare deploy env
+        id: prep
+        run: |
+          set -euo pipefail
+          case "${{ needs.resolve-inputs.outputs.service_name }}" in
+            stockpile-volume)
+              IMAGE_SUFFIX="stockpile"
+              PORT=8001
+              HEALTH_PATH="stockpile/health"
+              MEMORY_LIMIT="8G"
+              MEMORY_RESERVATION="4G"
+              ;;
+            hotspot-detection)
+              IMAGE_SUFFIX="hotspot"
+              PORT=8002
+              HEALTH_PATH="hotspots/health"
+              MEMORY_LIMIT="4G"
+              MEMORY_RESERVATION="2G"
+              ;;
+            object-detection)
+              IMAGE_SUFFIX="object-detect"
+              PORT=8003
+              HEALTH_PATH="object-detection/health"
+              MEMORY_LIMIT="8G"
+              MEMORY_RESERVATION="4G"
+              ;;
+            object-segmentation)
+              IMAGE_SUFFIX="segment"
+              PORT=8004
+              HEALTH_PATH="segmentation/health"
+              MEMORY_LIMIT="6G"
+              MEMORY_RESERVATION="3G"
+              ;;
+            d3-reconstruction)
+              IMAGE_SUFFIX="d3"
+              PORT=8005
+              HEALTH_PATH="d3-reconstruction/health"
+              MEMORY_LIMIT="12G"
+              MEMORY_RESERVATION="8G"
+              ;;
+            orthomosaic)
+              IMAGE_SUFFIX="ortho"
+              PORT=8006
+              HEALTH_PATH="orthomosaic/health"
+              MEMORY_LIMIT="8G"
+              MEMORY_RESERVATION="4G"
+              ;;
+            overlap-analysis)
+              IMAGE_SUFFIX="overlap"
+              PORT=8007
+              HEALTH_PATH="overlap/health"
+              MEMORY_LIMIT="4G"
+              MEMORY_RESERVATION="2G"
+              ;;
+            *)
+              echo "Unknown service: ${{ needs.resolve-inputs.outputs.service_name }}"
+              exit 1
+              ;;
+          esac
+
+          IMAGE_REF="cr.yandex/${{ needs.load-config.outputs.registry_id }}/${{ needs.load-config.outputs.registry_repository }}:staging-${{ needs.resolve-inputs.outputs.service_version }}"
+
+          {
+            echo "image_suffix=$IMAGE_SUFFIX"
+            echo "port=$PORT"
+            echo "health_path=$HEALTH_PATH"
+            echo "memory_limit=$MEMORY_LIMIT"
+            echo "memory_reservation=$MEMORY_RESERVATION"
+            echo "image_ref=$IMAGE_REF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send deployment start telemetry
+        if: always()
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT_STAGING }}
+          OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN_STAGING }}
+        run: |
+          if [ -z "${OTEL_ENDPOINT:-}" ]; then
+            exit 0
+          fi
+          curl_args=(-fsS -X POST "$OTEL_ENDPOINT/v1/metrics" -H "Content-Type: application/json")
+          if [ -n "${OTEL_AUTH_TOKEN:-}" ]; then
+            curl_args+=(-H "Authorization: Bearer $OTEL_AUTH_TOKEN")
+          fi
+          curl "${curl_args[@]}" -d "{\"deployment\":\"start\",\"environment\":\"staging\",\"service\":\"${{ needs.resolve-inputs.outputs.service_name }}\",\"version\":\"${{ needs.resolve-inputs.outputs.service_version }}\"}" || true
+
+      - name: Blue/Green deploy ML service
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVICE_NAME: ${{ needs.resolve-inputs.outputs.service_name }}
+          SERVICE_VERSION: ${{ needs.resolve-inputs.outputs.service_version }}
+          MODEL_VERSION: ${{ needs.resolve-inputs.outputs.model_version }}
+          IMAGE_SUFFIX: ${{ steps.prep.outputs.image_suffix }}
+          IMAGE_REF: ${{ steps.prep.outputs.image_ref }}
+          PORT: ${{ steps.prep.outputs.port }}
+          HEALTH_PATH: ${{ steps.prep.outputs.health_path }}
+          MEMORY_LIMIT: ${{ steps.prep.outputs.memory_limit }}
+          MEMORY_RESERVATION: ${{ steps.prep.outputs.memory_reservation }}
+          REGISTRY_ID: ${{ needs.load-config.outputs.registry_id }}
+          REGISTRY_REPOSITORY: ${{ needs.load-config.outputs.registry_repository }}
+          ML_SERVICE_API_VERSION: ${{ env.ML_SERVICE_API_VERSION }}
+          REPO_URL: https://${{ secrets.REPO_HOST_USER }}:${{ secrets.REPO_HOST_PASSWORD }}@github.com/${{ github.repository }}.git
+          YC_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+          ENVIRONMENT: staging
+        with:
+          host: ${{ matrix.host_ip }}
+          username: ${{ needs.load-config.outputs.host_user }}
+          key: ${{ secrets.YANDEX_VM_SSH_KEY }}
+          port: ${{ needs.load-config.outputs.host_port }}
+          command_timeout: 30m
+          envs: SERVICE_NAME,SERVICE_VERSION,MODEL_VERSION,IMAGE_SUFFIX,IMAGE_REF,PORT,HEALTH_PATH,MEMORY_LIMIT,MEMORY_RESERVATION,REGISTRY_ID,REGISTRY_REPOSITORY,ML_SERVICE_API_VERSION,REPO_URL,YC_SA_JSON,ENVIRONMENT
+          script: |
+            set -euo pipefail
+
+            : "${SERVICE_NAME:?missing SERVICE_NAME}"
+            : "${SERVICE_VERSION:?missing SERVICE_VERSION}"
+            : "${IMAGE_SUFFIX:?missing IMAGE_SUFFIX}"
+            : "${IMAGE_REF:?missing IMAGE_REF}"
+            : "${PORT:?missing PORT}"
+            : "${HEALTH_PATH:?missing HEALTH_PATH}"
+            : "${REGISTRY_ID:?missing REGISTRY_ID}"
+            : "${REGISTRY_REPOSITORY:?missing REGISTRY_REPOSITORY}"
+            : "${ML_SERVICE_API_VERSION:?missing ML_SERVICE_API_VERSION}"
+            : "${REPO_URL:?missing REPO_URL}"
+            : "${YC_SA_JSON:?missing YC_SA_JSON}"
+            : "${ENVIRONMENT:?missing ENVIRONMENT}"
+
+            APP_DIR="vegamaps_ml"
+            NETWORK_NAME="${ENVIRONMENT}-vegamaps-net"
+            DOCKER_COMPOSE_FILE="deployment/production/docker-compose.prod.yml"
+
+            cd ~
+            if [ ! -d "$APP_DIR" ]; then
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            if ! docker network ls --format '{{.Name}}' | grep -q "^${NETWORK_NAME}$"; then
+              docker network create "$NETWORK_NAME"
+            fi
+
+            echo "Docker disk usage before cleanup:"
+            docker system df || true
+            docker container prune -f || true
+            docker image prune -af --filter "until=168h" || true
+            docker volume prune -f || true
+            docker builder prune -af || true
+            echo "Docker disk usage after cleanup:"
+            docker system df || true
+
+            printf '%s' "$YC_SA_JSON" | docker login --username json_key --password-stdin cr.yandex
+
+            FULL_IMAGE_NAME="vegamaps-ml-${IMAGE_SUFFIX}"
+            docker pull "$IMAGE_REF"
+            docker tag "$IMAGE_REF" "${FULL_IMAGE_NAME}:${SERVICE_VERSION}"
+
+            cat > ".env.${SERVICE_NAME}" <<EOT
+            SERVICE_NAME=$SERVICE_NAME
+            SERVICE_IMAGE_SUFFIX=$IMAGE_SUFFIX
+            SERVICE_PORT=$PORT
+            SERVICE_HEALTH_PATH=$HEALTH_PATH
+            BLUE_VERSION=$SERVICE_VERSION
+            GREEN_VERSION=$SERVICE_VERSION
+            ACTIVE_BACKEND=ml-service-green
+            REGISTRY=cr.yandex/$REGISTRY_ID
+            BLUE_PORT=$PORT
+            GREEN_PORT=$((PORT + 100))
+            NGINX_PORT=$PORT
+            MEMORY_LIMIT=$MEMORY_LIMIT
+            MEMORY_RESERVATION=$MEMORY_RESERVATION
+            MODEL_VERSION=$MODEL_VERSION
+            ML_SERVICE_API_VERSION=$ML_SERVICE_API_VERSION
+            ENVIRONMENT=$ENVIRONMENT
+            LOG_LEVEL=INFO
+            WORKERS=4
+            EOT
+
+            docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" up -d ml-service-green
+
+            sleep 30
+            GREEN_HEALTHY=false
+            for i in $(seq 1 10); do
+              if docker exec "${SERVICE_NAME}-green" sh -c "curl -fsS http://localhost:8000/api/${ML_SERVICE_API_VERSION}/${HEALTH_PATH} >/dev/null"; then
+                GREEN_HEALTHY=true
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$GREEN_HEALTHY" != "true" ]; then
+              echo "Green deployment health check failed"
+              docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" logs ml-service-green --tail=50
+              docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" down ml-service-green || true
+              exit 1
+            fi
+
+            export ACTIVE_BACKEND="ml-service-green"
+            docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" up -d nginx
+            sleep 10
+
+            if curl -fsS "http://localhost:${PORT}/api/${ML_SERVICE_API_VERSION}/${HEALTH_PATH}" >/dev/null; then
+              echo "Switch verification passed"
+            else
+              echo "Switch verification failed, rolling back..."
+              export ACTIVE_BACKEND="ml-service-blue"
+              docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" up -d nginx
+              exit 1
+            fi
+
+            docker compose --env-file ".env.${SERVICE_NAME}" -f "$DOCKER_COMPOSE_FILE" up -d --no-deps ml-service-blue
+            docker image prune -f --filter "until=168h"
+
+      - name: Send deployment telemetry
+        if: always()
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_ENDPOINT_STAGING }}
+          OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN_STAGING }}
+          DEPLOY_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "${OTEL_ENDPOINT:-}" ]; then
+            exit 0
+          fi
+          curl_args=(-fsS -X POST "$OTEL_ENDPOINT/v1/metrics" -H "Content-Type: application/json")
+          if [ -n "${OTEL_AUTH_TOKEN:-}" ]; then
+            curl_args+=(-H "Authorization: Bearer $OTEL_AUTH_TOKEN")
+          fi
+          curl "${curl_args[@]}" -d "{\"deployment\":\"finish\",\"environment\":\"staging\",\"service\":\"${{ needs.resolve-inputs.outputs.service_name }}\",\"version\":\"${{ needs.resolve-inputs.outputs.service_version }}\",\"status\":\"${DEPLOY_STATUS}\"}" || true
+
+  verify-deployment:
+    name: Verify ${{ needs.resolve-inputs.outputs.service_name }} Deployment
+    runs-on: [self-hosted, linux, x64]
+    needs: [resolve-inputs, deploy-staging]
+    if: always()
+    steps:
+      - name: Smoke note
+        run: |
+          echo "Deployment finished for ${{ needs.resolve-inputs.outputs.service_name }} v${{ needs.resolve-inputs.outputs.service_version }}"

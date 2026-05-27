@@ -1,0 +1,87 @@
+---
+- name: Deploy Elasticsearch Security SIEM server
+  hosts: all
+  become: yes
+  vars:
+    es_version: "8.15.0"
+    kibana_version: "8.15.0"
+    es_host_port: 9202
+    es_network_port: 9200
+    kibana_host_port: 5601
+    kibana_network_port: 5601
+    network_name: siem-net
+    es_container_name: elasticsearch8
+    kibana_container_name: kibana
+    es_data_dir: /var/lib/elasticsearch8-data   # persistent volume on host
+
+  tasks:
+    - name: Ensure Docker is installed
+      package:
+        name: docker.io
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install Python Docker module
+      pip:
+        name: docker
+        state: present
+
+    - name: Create persistent data directory for Elasticsearch
+      file:
+        path: "{{ es_data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create Docker network for SIEM
+      docker_network:
+        name: "{{ network_name }}"
+        state: present
+
+    - name: Run Elasticsearch 8.15 container
+      docker_container:
+        name: "{{ es_container_name }}"
+        image: "docker.elastic.co/elasticsearch/elasticsearch:{{ es_version }}"
+        state: started
+        restart_policy: always
+        networks:
+          - name: "{{ network_name }}"
+        ports:
+          - "{{ es_host_port }}:{{ es_network_port }}"
+          - "9302:9300"   # inter-node communication (optional)
+        env:
+          discovery.type: "single-node"
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+        volumes:
+          - "{{ es_data_dir }}:/usr/share/elasticsearch/data"
+        ulimits:
+          - name: memlock
+            soft: -1
+            hard: -1
+          - name: nofile
+            soft: 65536
+            hard: 65536
+
+    - name: Wait for Elasticsearch to be ready
+      uri:
+        url: "http://localhost:{{ es_host_port }}"
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 30
+      delay: 5
+
+    - name: Run Kibana 8.15 container
+      docker_container:
+        name: "{{ kibana_container_name }}"
+        image: "docker.elastic.co/kibana/kibana:{{ kibana_version }}"
+        state: started
+        restart_policy: always
+        networks:
+          - name: "{{ network_name }}"
+        ports:
+          - "{{ kibana_host_port }}:{{ kibana_network_port }}"
+        env:
+          ELASTICSEARCH_HOSTS: "http://{{ es_container_name }}:{{ es_network_port }}"
+          XPACK_SECURITY_ENABLED: "false"
+        # No volumes needed for Kibana, but you could add for config if needed

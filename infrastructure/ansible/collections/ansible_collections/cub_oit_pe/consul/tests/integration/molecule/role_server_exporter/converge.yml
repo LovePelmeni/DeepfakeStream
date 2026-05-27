@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: all
+  tasks:
+    - name: "Include server"
+      include_role:
+        name: "server"
+      vars:
+        - version: '1.9.3'
+        - consul_exporter: true

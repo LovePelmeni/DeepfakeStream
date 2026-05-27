@@ -1,0 +1,194 @@
+name: Evidently_UI_CD_Pipeline
+description: "CD pipeline for Evidently AI Observability UI"
+
+on:
+  workflow_run:
+    workflows: ["Evidently_UI_CI_Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: vegamaps-evidently-ui
+  DOCKER_COMPOSE_FILE: "deployment/docker-compose.prod.yml"
+  SERVICE_NAME: vegamaps-evidently-ui
+  CONFIG_BUCKET: "vegamaps-config-prod"
+
+jobs:
+  deploy-evidently:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, linux, x64]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get infrastructure configuration
+        id: infra
+        run: |
+          curl -fsSL "https://${{ env.CONFIG_BUCKET }}.storage.yandexcloud.net/infrastructure-config.json" > config.json
+
+          REGISTRY_ID=$(jq -r '.registry.id' config.json)
+          EVIDENTLY_VM_IP=$(jq -r '.observability.evidently_vm_ip // .instances.evidently.private_ip' config.json)
+          EVIDENTLY_VM_USER=$(jq -r '.observability.evidently_vm_user // .instances.evidently.user // "yc-user"' config.json)
+
+          echo "registry_id=$REGISTRY_ID" >> "$GITHUB_OUTPUT"
+          echo "evidently_vm_ip=$EVIDENTLY_VM_IP" >> "$GITHUB_OUTPUT"
+          echo "evidently_vm_user=$EVIDENTLY_VM_USER" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.YANDEX_VM_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.infra.outputs.evidently_vm_ip }} >> ~/.ssh/known_hosts
+
+      - name: Deploy Evidently UI to VM
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+          YANDEX_REGISTRY_ID: ${{ steps.infra.outputs.registry_id }}
+          REPO_URL: https://${{ secrets.REPO_HOST_USER }}:${{ secrets.REPO_HOST_PASSWORD }}@github.com/${{ github.repository }}.git
+          YANDEX_CD_SA_JSON: ${{ secrets.YC_CD_SA_JSON }}
+        run: |
+          ssh ${{ steps.infra.outputs.evidently_vm_user }}@${{ steps.infra.outputs.evidently_vm_ip }} << 'ENDSSH'
+            set -euo pipefail
+
+            APP_DIR="vegamaps_observability"
+            SHORT_TAG="${IMAGE_TAG:0:12}"
+
+            echo "🚀 Starting Evidently UI deployment"
+            echo "   Image tag: $SHORT_TAG"
+
+            cd ~
+            if [ ! -d "$APP_DIR" ]; then
+              git clone "$REPO_URL" "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            echo "$YANDEX_CD_SA_JSON" | docker login --username json_key --password-stdin cr.yandex
+
+            echo "📦 Pulling Evidently UI image..."
+            docker pull "cr.yandex/$YANDEX_REGISTRY_ID/$IMAGE_NAME:$SHORT_TAG"
+
+            docker tag "cr.yandex/$YANDEX_REGISTRY_ID/$IMAGE_NAME:$SHORT_TAG" "$IMAGE_NAME:latest"
+
+            mkdir -p evidently_workspace
+
+            echo "🛑 Stopping old container..."
+            docker stop vegamaps-evidently-ui || true
+            docker rm vegamaps-evidently-ui || true
+
+            echo "🚀 Starting new container..."
+            docker run -d \
+              --name vegamaps-evidently-ui \
+              --restart unless-stopped \
+              -p 8000:8000 \
+              -v $(pwd)/evidently_workspace:/app/evidently_workspace \
+              -e EVIDENTLY_WORKSPACE=/app/evidently_workspace \
+              -e EVIDENTLY_HOST=0.0.0.0 \
+              -e EVIDENTLY_PORT=8000 \
+              $IMAGE_NAME:latest
+
+            echo "⏳ Waiting for service to be healthy..."
+            sleep 15
+
+            UI_HEALTHY=false
+            for i in $(seq 1 10); do
+              if curl -fsS "http://localhost:8000/" >/dev/null 2>&1; then
+                UI_HEALTHY=true
+                echo "✅ Evidently UI is healthy (attempt $i)"
+                break
+              fi
+              echo "⏳ Waiting for Evidently UI... (attempt $i/10)"
+              sleep 5
+            done
+
+            if [ "$UI_HEALTHY" != "true" ]; then
+              echo "❌ Health check failed!"
+              echo "📋 Container logs:"
+              docker logs vegamaps-evidently-ui --tail=50
+              exit 1
+            fi
+
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            echo "✅ Evidently UI deployed successfully!"
+            echo "📍 Evidently UI: http://${{ steps.infra.outputs.evidently_vm_ip }}:8000"
+          ENDSSH
+
+      - name: Verify deployment
+        if: always()
+        run: |
+          echo "🔍 Verifying Evidently UI deployment..."
+
+          UI_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            http://${{ steps.infra.outputs.evidently_vm_ip }}:8000/ || echo "000")
+
+          if [ "$UI_STATUS" = "200" ]; then
+            echo "✅ Evidently UI is running"
+          else
+            echo "⚠️ Evidently UI status: $UI_STATUS"
+          fi
+
+      - name: Deployment notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "🎉 Evidently UI deployed successfully!"
+            echo "📍 Evidently UI: http://${{ steps.infra.outputs.evidently_vm_ip }}:8000"
+          else
+            echo "❌ Evidently UI deployment failed!"
+            exit 1
+          fi
+
+  rollback:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, linux, x64]
+    environment: production
+    steps:
+      - name: Get infrastructure configuration
+        id: infra
+        run: |
+          curl -fsSL "https://${{ env.CONFIG_BUCKET }}.storage.yandexcloud.net/infrastructure-config.json" > config.json
+          EVIDENTLY_VM_IP=$(jq -r '.observability.evidently_vm_ip // .instances.evidently.private_ip' config.json)
+          EVIDENTLY_VM_USER=$(jq -r '.observability.evidently_vm_user // .instances.evidently.user // "yc-user"' config.json)
+          echo "evidently_vm_ip=$EVIDENTLY_VM_IP" >> "$GITHUB_OUTPUT"
+          echo "evidently_vm_user=$EVIDENTLY_VM_USER" >> "$GITHUB_OUTPUT"
+
+      - name: Manual Rollback Evidently UI
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.infra.outputs.evidently_vm_ip }}
+          username: ${{ steps.infra.outputs.evidently_vm_user }}
+          key: ${{ secrets.YANDEX_VM_SSH_KEY }}
+          port: ${{ secrets.YANDEX_VM_SSH_PORT || '22' }}
+          script: |
+            set -euo pipefail
+
+            echo "🔄 Manual rollback of Evidently UI initiated"
+
+            cd ~/vegamaps_observability
+
+            if [ -f "$HOME/.previous_evidently_tag" ]; then
+              PREVIOUS_TAG=$(cat "$HOME/.previous_evidently_tag")
+              echo "📦 Rolling back to tag: $PREVIOUS_TAG"
+
+              docker pull "cr.yandex/$REGISTRY_ID/$IMAGE_NAME:$PREVIOUS_TAG"
+              docker tag "cr.yandex/$REGISTRY_ID/$IMAGE_NAME:$PREVIOUS_TAG" "$IMAGE_NAME:latest"
+            fi
+
+            docker stop vegamaps-evidently-ui || true
+            docker rm vegamaps-evidently-ui || true
+
+            docker run -d \
+              --name vegamaps-evidently-ui \
+              --restart unless-stopped \
+              -p 8000:8000 \
+              -v $(pwd)/evidently_workspace:/app/evidently_workspace \
+              $IMAGE_NAME:latest
+
+            echo "Rollback completed"

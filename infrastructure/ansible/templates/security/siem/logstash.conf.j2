@@ -1,0 +1,32 @@
+input {
+  file {
+    path => "/var/log/vegamaps/progress.log"   # path to your application logs
+    start_position => "beginning"
+    sincedb_path => "/dev/null"                # for testing; remove for prod
+    codec => json                              # assuming each line is JSON
+  }
+}
+ 
+filter {
+  # Optional: add a timestamp field if missing
+  if [@timestamp] {
+    date {
+      match => ["@timestamp", "ISO8601"]
+    }
+  }
+  # Optional: add a tag or rename fields
+  mutate {
+    rename => { "user_id" => "user.id" }
+    add_tag => ["vegamaps", "progress"]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["http://{{ elasticsearch_host }}:{{ elasticsearch_port }}"]         # your Elasticsearch 8.15 address
+    index => "vegamaps-progress-%{+YYYY.MM.dd}"
+    user => ""                                 # leave empty if xpack.security.enabled=false
+    password => ""
+  }
+  stdout { codec => rubydebug }                # for debugging
+}

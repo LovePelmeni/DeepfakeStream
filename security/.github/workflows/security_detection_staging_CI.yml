@@ -1,0 +1,177 @@
+name: Vegamaps Security Detection CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  RULE_DIR: detections/rules
+  CONVERTED_DIR: compiled/eql
+  EQL_PIPELINE: ecs_linux           # Replace with your custom pipeline if needed
+
+jobs:
+  validate-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write     # for AWS OIDC (S3 upload)
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Detect changed rules (used for summary)
+      - name: Identify changed rules
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep "${{ env.RULE_DIR }}" || true)
+          else
+            CHANGED=$(git diff --name-only HEAD^ HEAD | grep "${{ env.RULE_DIR }}" || true)
+          fi
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+
+      # Python & Sigma setup
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install sigma-cli and Elasticsearch backend
+        run: |
+          pip install sigma-cli
+          sigma plugin install elasticsearch
+          sigma plugin list --plugin-type backend
+
+      # Convert Sigma → EQL (one file per rule)
+      - name: Convert Sigma rules to EQL
+        run: |
+          mkdir -p ${{ env.CONVERTED_DIR }}
+          for rule in $(find ${{ env.RULE_DIR }} -name "*.yml"); do
+            base=$(basename "$rule" .yml)
+            sigma convert -t eql "$rule" \
+              --pipeline "${{ env.EQL_PIPELINE }}" \
+              --output "${{ env.CONVERTED_DIR }}/${base}.eql"
+          done
+          echo "Converted rules:"
+          ls -la ${{ env.CONVERTED_DIR }}
+
+      # Package the EQL rules into a tarball
+      - name: Package detection rules
+        id: package
+        run: |
+          VERSION="build-${{ github.run_number }}"
+          PACKAGE_NAME="detection-rules-${VERSION}.tar.gz"
+          tar -czf $PACKAGE_NAME -C ${{ env.CONVERTED_DIR }} .
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+          echo "package_path=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+
+      # Deploy to test Elasticsearch via Kibana API
+      - name: Deploy to test SIEM (Kibana)
+        env:
+          KIBANA_HOST: ${{ secrets.TEST_KIBANA_HOST }}     # e.g., https://test-kibana:5601
+          KIBANA_API_KEY: ${{ secrets.TEST_KIBANA_API_KEY }}
+        run: |
+          python scripts/deploy_to_elastic.py \
+            --host "$KIBANA_HOST" \
+            --api-key "$KIBANA_API_KEY" \
+            --rules-dir "${{ env.CONVERTED_DIR }}" \
+            --action upsert
+
+      # Allow rules to become active
+      - name: Wait for rules to become active
+        run: sleep 15
+
+      # Run Atomic Red Team tests (attack simulation)
+      - name: Run Atomic Red Team tests
+        id: atomic
+        continue-on-error: true   # We'll check outcome later
+        env:
+          TEST_TARGET: ${{ secrets.ATTACK_TARGET_HOST }}
+          TEST_TARGET_USER: ${{ secrets.ATTACK_TARGET_USER }}
+          TEST_TARGET_PASS: ${{ secrets.ATTACK_TARGET_PASS }}
+        run: |
+          chmod +x scripts/run_atomic_tests.sh
+          ./scripts/run_atomic_tests.sh \
+            --target "$TEST_TARGET" \
+            --user "$TEST_TARGET_USER" \
+            --password "$TEST_TARGET_PASS" \
+            --attack-list "tests/atomic_attacks.txt" \
+            --report-xml atomic-test-report.xml
+
+      # If atomic failed, stop the pipeline
+      - name: Abort if atomic tests failed
+        if: steps.atomic.outcome == 'failure'
+        run: |
+          echo "Atomic tests execution failed, cannot validate detections"
+          exit 1
+
+      # Validate that alerts were triggered
+      - name: Validate detection alerts
+        id: validate
+        run: |
+          chmod +x scripts/validate_alerts.py
+          python scripts/validate_alerts.py \
+            --host "${{ secrets.TEST_KIBANA_HOST }}" \
+            --api-key "${{ secrets.TEST_KIBANA_API_KEY }}" \
+            --attack-report atomic-test-report.xml \
+            --output test-report.xml
+
+      # Publish JUnit report
+      - name: Publish test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Detection Tests Results
+          path: test-report.xml
+          reporter: java-junit
+
+      # Slack notification
+      - name: Notify test result (Slack)
+        if: always()
+        uses: slackapi/slack-github-action@v1.25
+        with:
+          payload: |
+            {
+              "text": "${{ steps.validate.outcome == 'success' && '✅' || '❌' }} Detection validation ${{ steps.validate.outcome }}\nRef: ${{ github.ref_name }}\nChanged rules: ${{ steps.changed.outputs.changed }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+      # Upload to S3 registry (only on main branch or tag, and only if validation succeeded)
+      - name: Configure AWS credentials
+        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload to S3 registry
+        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        env:
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          VERSION_PATH="releases/${{ steps.package.outputs.version }}"
+          aws s3 cp ${{ steps.package.outputs.package_path }} s3://${S3_BUCKET_NAME}/${VERSION_PATH}/
+          aws s3 cp s3://${S3_BUCKET_NAME}/${VERSION_PATH}/${{ steps.package.outputs.package_name }} \
+            s3://${S3_BUCKET_NAME}/releases/latest/detection-rules-latest.tar.gz --no-progress
+
+      - name: Notify S3 deployment success
+        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: slackapi/slack-github-action@v1.25
+        with:
+          payload: |
+            {
+              "text": "📦 Detection rules deployed to S3 artifact registry!\nVersion: ${{ steps.package.outputs.version }}\nBucket: ${{ secrets.S3_BUCKET_NAME }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

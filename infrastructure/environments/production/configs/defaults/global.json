@@ -1,0 +1,40 @@
+{
+  "environment": "prod",
+  "defaults": {
+    "core_fraction": 100,
+    "boot_disk_type": "network-ssd",
+    "assign_public_ip": false,
+    "preemptible": false
+  },
+  "observability": {
+    "cores": 8,
+    "memory_gb": 32,
+    "boot_disk_size": 100,
+    "data_disk_size": 500,
+    "data_disk_enabled": true,
+    "services": {
+      "grafana": true,
+      "prometheus": true,
+      "loki": true,
+      "tempo": true,
+      "mlflow": true,
+      "airflow": true
+    }
+  },
+  "postgresql": {
+    "preset_id": "s2.micro",
+    "disk_size": 100,
+    "max_connections": 200,
+    "version": 15
+  },
+  "bastion": {
+    "cores": 2,
+    "memory_gb": 4,
+    "disk_size": 20
+  },
+  "waf": {
+    "paranoia_level": 2,
+    "anomaly_threshold": 25,
+    "mode": "BLOCK"
+  }
+}

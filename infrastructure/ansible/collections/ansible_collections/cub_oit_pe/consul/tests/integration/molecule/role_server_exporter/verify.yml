@@ -1,0 +1,8 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: "Consul is running"
+    ansible.builtin.command:
+      cmd: "consul members"

@@ -1,0 +1,44 @@
+# .checkov.yaml – Yandex Cloud specific configuration
+
+# Fail the pipeline on HIGH severity issues (ignore MEDIUM/LOW)
+severity: HIGH
+
+# Skip specific checks that are false positives or not relevant for your environment
+skip-check:
+  # Example: If you intentionally need a public IP on a bastion host, skip CKV_YC_2
+  - CKV_YC_2      # "Ensure compute instance does not have public IP"
+  # If you intentionally do not assign security groups to an instance
+  - CKV_YC_11     # "Ensure security group is assigned to network interface"
+  # If your bucket encryption is handled outside Terraform (or you accept the risk)
+  - CKV_YC_3      # "Ensure storage bucket is encrypted"
+  # For module sources, if you prefer using latest (not recommended, but skip if needed)
+  - CKV_TF_1      # "Ensure Terraform module sources use a commit hash"
+  - CKV_TF_2      # "Ensure Terraform module sources use a tag with a version number"
+
+# Only scan Terraform files (skip other frameworks)
+framework:
+  - terraform
+
+# Output format (cli is easiest for CI logs)
+output: cli
+
+# Quiet mode – only display failed checks (less noise)
+quiet: true
+
+# Do NOT soft-fail – pipeline fails on any HIGH severity issue
+soft-fail: false
+
+# Directory containing your custom Python policies (limits for instances, VPCs, etc.)
+external-checks-dir:
+  - checkov_policies
+
+# Skip scanning these directories (Terraform cache, vendor modules)
+skip-path:
+  - "**/.terraform"
+  - "**/modules/vendor"
+  - "**/terraform.tfstate*"
+
+# Optionally, include only specific checks (uncomment if needed)
+# check:
+#   - CKV_YC_23
+#   - CUSTOM_INSTANCE_001

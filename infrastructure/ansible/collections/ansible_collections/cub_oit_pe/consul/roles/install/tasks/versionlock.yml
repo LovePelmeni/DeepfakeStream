@@ -1,0 +1,10 @@
+---
+- name: "Version Lock the Consul Package"
+  community.general.yum_versionlock:
+    name: consul
+  when: version_lock
+
+- name: "Version Lock the Consul Exporter Package"
+  community.general.yum_versionlock:
+    name: consul
+  when: version_lock and consul_exporter

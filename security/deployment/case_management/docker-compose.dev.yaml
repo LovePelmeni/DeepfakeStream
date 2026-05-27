@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  elasticsearch7:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.23
+    container_name: elasticsearch7
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9201:9200"   # map to host port 9201 to avoid conflict with ES8
+      - "9301:9300"
+    volumes:
+      - es7_data:/usr/share/elasticsearch/data
+    networks:
+      - soar
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    networks:
+      - soar
+
+  thehive:
+    image: thehiveproject/thehive:5.5.3
+    container_name: thehive
+    environment:
+      - ELASTICSEARCH_ADDRESSES=http://elasticsearch7:9200
+      - CASSANDRA_ADDRESSES=cassandra:9042
+      - JWT_SECRET=dev-secret-key
+    ports:
+      - "9000:9000"
+    depends_on:
+      - elasticsearch7
+      - cassandra
+    networks:
+      - soar
+
+  cortex:
+    image: thehiveproject/cortex:3.2.1
+    container_name: cortex
+    environment:
+      - ELASTICSEARCH_ADDRESSES=http://elasticsearch7:9200
+      - PLAY_HTTP_SECRET_KEY=dev-secret-key
+      - AUTH_LOCAL_USER_DEFAULT_PASSWORD=secret
+    ports:
+      - "9001:9001"
+    depends_on:
+      - elasticsearch7
+    networks:
+      - soar
+
+networks:
+  soar:
+    driver: bridge
+
+volumes:
+  es7_data:
+  cassandra_data:

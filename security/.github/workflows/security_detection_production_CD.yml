@@ -1,0 +1,69 @@
+name: Deploy to Production SIEM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Rule version to deploy (e.g., build-123, latest, or v2025-05-23)'
+        required: true
+        default: 'latest'
+      confirm:
+        description: 'Type "yes" to confirm deployment to production'
+        required: true
+        default: 'no'
+
+env:
+  S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+  PROD_KIBANA_HOST: ${{ secrets.PROD_KIBANA_HOST }}
+  PROD_KIBANA_API_KEY: ${{ secrets.PROD_KIBANA_API_KEY }}
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Confirm production deployment
+        if: github.event.inputs.confirm != 'yes'
+        run: |
+          echo "Deployment cancelled: you must set confirm=yes"
+          exit 1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Download rules from S3
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ "$VERSION" == "latest" ]; then
+            aws s3 cp s3://${S3_BUCKET}/releases/latest/detection-rules-latest.tar.gz .
+            tar -xzf detection-rules-latest.tar.gz
+          else
+            VERSION_CLEAN=${VERSION#v}
+            aws s3 cp s3://${S3_BUCKET}/releases/${VERSION_CLEAN}/detection-rules-${VERSION_CLEAN}.tar.gz .
+            tar -xzf detection-rules-${VERSION_CLEAN}.tar.gz
+          fi
+          echo "Downloaded rules into ./rules"
+
+      - name: Deploy to production Kibana
+        run: |
+          python scripts/deploy_to_elastic.py \
+            --host "${{ env.PROD_KIBANA_HOST }}" \
+            --api-key "${{ env.PROD_KIBANA_API_KEY }}" \
+            --rules-dir ./rules \
+            --action upsert
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.25
+        with:
+          payload: |
+            {
+              "text": "🚀 Production detection rules deployed!\nVersion: ${{ github.event.inputs.version }}\nEnvironment: production"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

@@ -1,0 +1,132 @@
+---
+- name: Create application directory
+  file:
+    path: "/home/ubuntu/vegamaps_ml"
+    state: directory
+
+- name: Clone or update git repository
+  git:
+    repo: "{{ repo_url }}"   # passed from GitHub Actions or vault
+    dest: "/home/ubuntu/vegamaps_ml"
+    version: main
+    force: yes
+
+- name: Create Docker network if absent
+  docker_network:
+    name: "{{ environment }}-vegamaps-net"
+    state: present
+
+- name: Login to Yandex Container Registry
+  docker_login:
+    registry_url: "cr.yandex"
+    username: json_key
+    password: "{{ yandex_sa_json }}"   # passed as extra var
+    reauthorize: yes
+
+- name: Set full image name
+  set_fact:
+    full_image_name: "vegamaps-ml-{{ image_suffix }}"
+
+- name: Pull new image
+  docker_image:
+    name: "cr.yandex/{{ registry_id }}/{{ full_image_name }}:{{ environment }}-{{ service_version }}"
+    source: pull
+
+- name: Tag image for local use
+  docker_image:
+    name: "cr.yandex/{{ registry_id }}/{{ full_image_name }}:{{ environment }}-{{ service_version }}"
+    repository: "{{ full_image_name }}:{{ service_version }}"
+    state: present
+    pull: no
+
+- name: Generate .env file for the service
+  template:
+    src: env.j2
+    dest: "/home/ubuntu/vegamaps_ml/.env.{{ service_name }}"
+  vars:
+    blue_version: "{{ service_version }}"
+    green_version: "{{ service_version }}"
+    active_backend: "ml-service-green"
+
+- name: Deploy green container
+  docker_compose:
+    project_src: "/home/ubuntu/vegamaps_ml"
+    files:
+      - "deployment/production/docker-compose.universal.yml"
+    env_file: ".env.{{ service_name }}"
+    services:
+      - ml-service-green
+    state: present
+    restarted: yes
+
+- name: Wait for green container health
+  uri:
+    url: "http://localhost:{{ port }}/api/{{ ml_service_api_version }}/{{ health_path }}"
+    status_code: 200
+    timeout: 10
+  register: health_check
+  until: health_check.status == 200
+  retries: 30
+  delay: 10
+  vars:
+    ansible_host: localhost   # check inside the container? Use docker exec alternative
+
+- name: Alternative health check (inside container)
+  command: >
+    docker exec {{ service_name }}-green sh -c
+    "curl -fsS http://localhost:{{ port }}/api/{{ ml_service_api_version }}/{{ health_path }}"
+  register: container_health
+  until: container_health.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Switch traffic to green (update nginx-router)
+  docker_compose:
+    project_src: "/home/ubuntu/vegamaps_ml"
+    files:
+      - "deployment/production/docker-compose.universal.yml"
+    env_file: ".env.{{ service_name }}"
+    services:
+      - nginx-router
+    state: present
+    restarted: yes
+
+- name: Verify traffic through nginx
+  uri:
+    url: "http://localhost:{{ port }}/api/{{ ml_service_api_version }}/{{ health_path }}"
+    status_code: 200
+  register: final_check
+  until: final_check.status == 200
+  retries: 5
+  delay: 5
+
+- name: Rollback if verification fails
+  block:
+    - name: Set active backend to blue
+      set_fact:
+        active_backend: ml-service-blue
+    - name: Redeploy nginx-router with blue backend
+      docker_compose:
+        project_src: "/home/ubuntu/vegamaps_ml"
+        files:
+          - "deployment/production/docker-compose.universal.yml"
+        env_file: ".env.{{ service_name }}"
+        services:
+          - nginx-router
+        state: present
+        restarted: yes
+    - name: Fail the playbook
+      fail:
+        msg: "Blue-green verification failed, rolled back to blue"
+  when: final_check.status != 200
+
+- name: Start blue container again (idle, ready for next deploy)
+  docker_compose:
+    project_src: "/home/ubuntu/vegamaps_ml"
+    files:
+      - "deployment/production/docker-compose.universal.yml"
+    env_file: ".env.{{ service_name }}"
+    services:
+      - ml-service-blue
+    state: present

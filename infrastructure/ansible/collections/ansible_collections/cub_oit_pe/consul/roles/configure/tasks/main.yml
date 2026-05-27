@@ -1,0 +1,38 @@
+---
+- name: "Install Consul Binary"
+  include_role:
+    name: install
+
+- name: "Create Systemd Override Location: {{ systemd_override_path }}"
+  ansible.builtin.file:
+    group: root
+    mode: 0755
+    owner: root
+    path: "{{ systemd_override_path }}"
+    state: directory
+
+- name: "Insert Systemd Service Override"
+  ansible.builtin.template:
+    dest: "{{ systemd_override_path }}/consul.service"
+    group: root
+    mode: 0644
+    owner: root
+    src: "consul.service.j2"
+
+- name: "Insert Dummy Configuration File"
+  ansible.builtin.copy:
+    dest: "{{ configuration_location }}/consul.hcl"
+    group: consul
+    mode: 0600
+    owner: consul
+    src: consul.hcl
+
+- name: "Create Consul Configuration"
+  ansible.builtin.template:
+    dest: "{{ configuration_location }}{{ item.key }}.json"
+    mode: 0644
+    owner: root
+    src: "hcl.j2"
+  with_dict: "{{ configuration }}"
+  notify:
+    - "Run Consul Configuration Validation"

@@ -1,0 +1,40 @@
+{
+  "registry": {
+    "id": "crp1234567890abcdef"
+  },
+  "services": {
+    "ips": {
+      "repository": "soc-ips",
+      "dockerfile": "ips/Dockerfile",
+      "compose_dev": "ips/docker-compose.dev.yaml",
+      "health_check": "/ping",
+      "health_port": 8082,
+      "env": {
+        "TRAEFIK_PING_PORT": "8082",
+        "CROWDSEC_MODE": "dev"
+      }
+    },
+    "siem": {
+      "repository": "soc-siem",
+      "dockerfile": "siem/Dockerfile",
+      "compose_dev": "siem/docker-compose.dev.yaml",
+      "health_check": "/api/status",
+      "health_port": 5601,
+      "test_command": "npm run test:integration"
+    },
+    "case_management": {
+      "repository": "soc-case-management",
+      "dockerfile": "case_management/Dockerfile",
+      "compose_dev": "case_management/docker-compose.dev.yaml",
+      "health_check": "/health",
+      "health_port": 8000
+    },
+    "threat_intelligence": {
+      "repository": "soc-threat-intel",
+      "dockerfile": "threat_intelligence/Dockerfile",
+      "compose_dev": "threat_intelligence/docker-compose.dev.yaml",
+      "health_check": "/healthz",
+      "health_port": 3000
+    }
+  }
+}

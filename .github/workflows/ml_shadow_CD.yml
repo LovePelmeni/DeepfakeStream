@@ -1,0 +1,242 @@
+name: ML Service CD - Shadow Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Service to validate'
+        required: true
+        type: choice
+        options:
+          - stockpile-volume
+          - hotspot-detection
+          - object-detection
+          - object-segmentation
+          - d3-reconstruction
+          - orthomosaic
+          - overlap-analysis
+      service_version:
+        description: 'Service version to validate'
+        required: true
+        type: string
+      model_version:
+        description: 'Model version to validate'
+        required: true
+        type: string
+      shadow_duration_hours:
+        description: 'Shadow validation duration (hours)'
+        required: false
+        default: '168'
+        type: choice
+        options:
+          - '24'
+          - '72'
+          - '168'
+          - '336'
+
+  repository_dispatch:
+    types: [shadow-validation-request]
+
+jobs:
+  deploy-shadow:
+    name: Deploy Shadow Model for ${{ inputs.service_name }}
+    runs-on: [self-hosted, linux, x64]
+    environment: shadow-validation
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get service configuration
+        id: service_config
+        run: |
+          SERVICE_NAME="${{ inputs.service_name }}"
+
+          case "${SERVICE_NAME}" in
+            stockpile-volume)
+              IMAGE_SUFFIX="stockpile"
+              PORT=8001
+              HEALTH_PATH="stockpile/health"
+              SHADOW_PORT=8011
+              MEMORY_LIMIT="8G"
+              ;;
+            hotspot-detection)
+              IMAGE_SUFFIX="hotspot"
+              PORT=8002
+              HEALTH_PATH="hotspots/health"
+              SHADOW_PORT=8012
+              MEMORY_LIMIT="4G"
+              ;;
+            object-detection)
+              IMAGE_SUFFIX="object-detect"
+              PORT=8003
+              HEALTH_PATH="object-detection/health"
+              SHADOW_PORT=8013
+              MEMORY_LIMIT="8G"
+              ;;
+            object-segmentation)
+              IMAGE_SUFFIX="segment"
+              PORT=8004
+              HEALTH_PATH="segmentation/health"
+              SHADOW_PORT=8014
+              MEMORY_LIMIT="6G"
+              ;;
+            d3-reconstruction)
+              IMAGE_SUFFIX="d3"
+              PORT=8005
+              HEALTH_PATH="d3-reconstruction/health"
+              SHADOW_PORT=8015
+              MEMORY_LIMIT="12G"
+              ;;
+            orthomosaic)
+              IMAGE_SUFFIX="ortho"
+              PORT=8006
+              HEALTH_PATH="orthomosaic/health"
+              SHADOW_PORT=8016
+              MEMORY_LIMIT="8G"
+              ;;
+            overlap-analysis)
+              IMAGE_SUFFIX="overlap"
+              PORT=8007
+              HEALTH_PATH="overlap/health"
+              SHADOW_PORT=8017
+              MEMORY_LIMIT="4G"
+              ;;
+          esac
+
+          echo "image_suffix=${IMAGE_SUFFIX}" >> $GITHUB_OUTPUT
+          echo "port=${PORT}" >> $GITHUB_OUTPUT
+          echo "health_path=${HEALTH_PATH}" >> $GITHUB_OUTPUT
+          echo "shadow_port=${SHADOW_PORT}" >> $GITHUB_OUTPUT
+          echo "memory_limit=${MEMORY_LIMIT}" >> $GITHUB_OUTPUT
+
+      - name: Get infrastructure configuration
+        id: infra
+        run: |
+          curl -fsSL "https://vegamaps-config-staging.storage.yandexcloud.net/infrastructure-config.json" > config.json
+
+          REGISTRY_ID=$(jq -r '.registry.id' config.json)
+          BASTION_IP=$(jq -r '.instances.bastion.private_ip' config.json)
+          BASTION_USER=$(jq -r '.instances.bastion.user // "ubuntu"' config.json)
+          ML_IPS=$(jq -c '.instances.ml_staging' config.json)
+          DB_HOST=$(jq -r '.database.staging.host' config.json)
+          KMS_KEY_ID=$(jq -r '.secrets.kms_key_id' config.json)
+
+          echo "registry_id=$REGISTRY_ID" >> $GITHUB_OUTPUT
+          echo "bastion_ip=$BASTION_IP" >> $GITHUB_OUTPUT
+          echo "bastion_user=$BASTION_USER" >> $GITHUB_OUTPUT
+          echo "ml_ips=$ML_IPS" >> $GITHUB_OUTPUT
+          echo "db_host=$DB_HOST" >> $GITHUB_OUTPUT
+          echo "kms_key_id=$KMS_KEY_ID" >> $GITHUB_OUTPUT
+
+      - name: Deploy shadow model
+        env:
+          SERVICE_NAME: ${{ inputs.service_name }}
+          SERVICE_VERSION: ${{ inputs.service_version }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          IMAGE_SUFFIX: ${{ steps.service_config.outputs.image_suffix }}
+          PORT: ${{ steps.service_config.outputs.port }}
+          SHADOW_PORT: ${{ steps.service_config.outputs.shadow_port }}
+          HEALTH_PATH: ${{ steps.service_config.outputs.health_path }}
+          MEMORY_LIMIT: ${{ steps.service_config.outputs.memory_limit }}
+          REGISTRY_ID: ${{ steps.infra.outputs.registry_id }}
+          BASTION_IP: ${{ steps.infra.outputs.bastion_ip }}
+          BASTION_USER: ${{ steps.infra.outputs.bastion_user }}
+          ML_IPS: ${{ steps.infra.outputs.ml_ips }}
+          DB_HOST: ${{ steps.infra.outputs.db_host }}
+          KMS_KEY_ID: ${{ steps.infra.outputs.kms_key_id }}
+          REPO_URL: https://${{ secrets.REPO_HOST_USER }}:${{ secrets.REPO_HOST_PASSWORD }}@github.com/${{ github.repository }}.git
+          YANDEX_SA_JSON: ${{ secrets.YC_STAGING_SA_JSON }}
+          ML_SERVICE_API_VERSION: ${{ vars.ML_SERVICE_API_VERSION || 'v1' }}
+          SHADOW_DURATION_HOURS: ${{ inputs.shadow_duration_hours }}
+        run: |
+          set -euo pipefail
+
+          for TARGET_IP in $(echo "$ML_IPS" | jq -r '.[]'); do
+            echo "Deploying shadow model for $SERVICE_NAME to $TARGET_IP"
+
+            ssh -o StrictHostKeyChecking=no -J "${BASTION_USER}@${BASTION_IP}" ubuntu@"$TARGET_IP" \
+              "SERVICE_NAME='$SERVICE_NAME' SERVICE_VERSION='$SERVICE_VERSION' MODEL_VERSION='$MODEL_VERSION' IMAGE_SUFFIX='$IMAGE_SUFFIX' PORT='$PORT' SHADOW_PORT='$SHADOW_PORT' HEALTH_PATH='$HEALTH_PATH' MEMORY_LIMIT='$MEMORY_LIMIT' REGISTRY_ID='$REGISTRY_ID' DB_HOST='$DB_HOST' KMS_KEY_ID='$KMS_KEY_ID' ML_SERVICE_API_VERSION='$ML_SERVICE_API_VERSION' REPO_URL='$REPO_URL' YANDEX_SA_JSON='$YANDEX_SA_JSON' SHADOW_DURATION_HOURS='$SHADOW_DURATION_HOURS' bash -s" << 'SSH_EOF'
+              set -euo pipefail
+
+              APP_DIR="vegamaps_ml"
+              RUN_SCRIPT="deployment/production/run_service.sh"
+              SHADOW_ENV_TEMPLATE="deployment/production/shadow.env.template"
+              NGINX_SHADOW_CONFIG="deployment/nginx/shadow.nginx.prod.conf.template"
+
+              cd ~
+              if [ ! -d "$APP_DIR" ]; then
+                git clone "$REPO_URL" "$APP_DIR"
+              fi
+
+              cd "$APP_DIR"
+              git fetch origin main
+              git checkout main
+              git reset --hard origin/main
+
+              echo "$YANDEX_SA_JSON" | docker login --username json_key --password-stdin cr.yandex
+
+              FULL_IMAGE_NAME="vegamaps-ml-${IMAGE_SUFFIX}"
+              SHADOW_IMAGE="cr.yandex/$REGISTRY_ID/${FULL_IMAGE_NAME}:staging-${SERVICE_VERSION}"
+
+              docker pull "$SHADOW_IMAGE"
+              docker tag "$SHADOW_IMAGE" "${FULL_IMAGE_NAME}:shadow"
+
+              docker stop "${SERVICE_NAME}-shadow" 2>/dev/null || true
+              docker rm "${SERVICE_NAME}-shadow" 2>/dev/null || true
+
+              envsubst < "$SHADOW_ENV_TEMPLATE" > "/tmp/shadow_env_${SERVICE_NAME}"
+
+              docker run -d \
+                --name "${SERVICE_NAME}-shadow" \
+                --restart unless-stopped \
+                --memory="$MEMORY_LIMIT" \
+                --memory-reservation="2G" \
+                -p "$SHADOW_PORT:$SHADOW_PORT" \
+                --env-file "/tmp/shadow_env_${SERVICE_NAME}" \
+                -v "$(pwd)/weights:/app/weights:ro" \
+                -v "$(pwd)/data:/app/data" \
+                -v "$(pwd)/logs:/app/logs" \
+                "${FULL_IMAGE_NAME}:shadow" \
+                /bin/bash -c "chmod +x $RUN_SCRIPT && $RUN_SCRIPT"
+
+              sleep 30
+
+              for i in $(seq 1 15); do
+                if curl -s -f "http://localhost:${SHADOW_PORT}/api/${ML_SERVICE_API_VERSION}/${HEALTH_PATH}" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 10
+              done
+
+              NGINX_CONTAINER="vegamaps-nginx-${SERVICE_NAME}"
+
+              if docker ps --format '{{.Names}}' | grep -q "^${NGINX_CONTAINER}$"; then
+                envsubst < "$NGINX_SHADOW_CONFIG" | \
+                  docker exec -i "${NGINX_CONTAINER}" tee /etc/nginx/conf.d/mirror.conf
+                docker exec "${NGINX_CONTAINER}" nginx -s reload
+              fi
+
+              echo "$SERVICE_VERSION" > "$HOME/.${SERVICE_NAME}_shadow_version"
+              echo "$MODEL_VERSION" > "$HOME/.${SERVICE_NAME}_shadow_model_version"
+              echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "$HOME/.${SERVICE_NAME}_shadow_started_at"
+              echo "$SHADOW_DURATION_HOURS" > "$HOME/.${SERVICE_NAME}_shadow_duration"
+
+              cp "$APP_DIR/scripts/stop_shadow.sh.template" "$HOME/stop_shadow_${SERVICE_NAME}.sh"
+              sed -i "s/{{SERVICE_NAME}}/${SERVICE_NAME}/g" "$HOME/stop_shadow_${SERVICE_NAME}.sh"
+              chmod +x "$HOME/stop_shadow_${SERVICE_NAME}.sh"
+
+              echo "Shadow deployment complete for $SERVICE_NAME"
+            SSH_EOF
+          done
+
+  notify-shadow-start:
+    name: Notify Shadow Deployment Started
+    runs-on: ubuntu-latest
+    needs: deploy-shadow
+    if: success()
+    steps:
+      - name: Send notification
+        run: |
+          echo "Shadow validation started for ${{ inputs.service_name }}"
+          echo "Version: ${{ inputs.service_version }}"
+          echo "Model: ${{ inputs.model_version }}"
+          echo "Duration: ${{ inputs.shadow_duration_hours }} hours"

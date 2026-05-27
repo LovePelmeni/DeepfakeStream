@@ -1,0 +1,9 @@
+---
+- name: Converge
+  hosts: all
+  tasks:
+    - name: "Include client"
+      include_role:
+        name: "client"
+      vars:
+        - version: '1.9.3'

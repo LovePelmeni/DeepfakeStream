@@ -1,0 +1,12 @@
+---
+- name: Deploy MISP Threat Intelligence Platform
+  hosts: misp
+  become: yes
+  gather_facts: yes
+
+  vars:
+    misp_repo: "https://github.com/MISP/MISP.git"
+    misp_version: "2.4.198"   # pin to stable release
+
+  roles:
+    - misp

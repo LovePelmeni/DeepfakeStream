@@ -1,0 +1,9 @@
+---
+- name: Converge
+  hosts: all
+  tasks:
+    - name: "Include install"
+      include_role:
+        name: "install"
+      vars:
+        - version: '1.9.3'

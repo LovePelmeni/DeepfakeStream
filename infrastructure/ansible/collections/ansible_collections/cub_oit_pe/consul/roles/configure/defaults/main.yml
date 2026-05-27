@@ -1,0 +1,17 @@
+---
+# The location for the systemd overrides to go into
+systemd_override_path: /etc/systemd/system/consul.service.d
+configuration_location: /etc/consul.d/
+# The configuration to be converted to json, each dictionary below
+# 'configuration' key is used to create a file in 'configuration_location'
+# Example:
+# Assuming configuration location is /etc/consul.d
+#         configuration:
+#           main:
+#             foo: 'bar'
+#           baz:
+#             bar: 'blah'
+#             bin: 'boo'
+# Will create /etc/consul.d/main.json with contents {'foo': 'bar'} and
+# /etc/consul.d/baz.json with contents {'bar': 'blah', 'bin': 'boo'}
+configuration:

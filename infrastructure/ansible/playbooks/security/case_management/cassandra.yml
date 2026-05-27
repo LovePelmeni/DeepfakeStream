@@ -1,0 +1,66 @@
+---
+- hosts: cassandra
+  become: yes
+
+  vars:
+    cassandra_version: "4.1"
+    cassandra_cluster_name: "TheHiveCluster"
+    cassandra_seeds: "{{ ansible_default_ipv4.address }}"
+    cassandra_listen_address: "{{ ansible_default_ipv4.address }}"
+    cassandra_rpc_address: "0.0.0.0"
+
+  tasks:
+    - name: Install Java (Cassandra requires OpenJDK 11 or 17)
+      apt:
+        name: openjdk-17-jdk
+        state: present
+        update_cache: yes
+
+    - name: Add Apache Cassandra repository
+      apt_key:
+        url: "https://downloads.apache.org/cassandra/KEYS"
+        state: present
+
+    - name: Add Cassandra APT repository
+      apt_repository:
+        repo: "deb https://debian.cassandra.apache.org {{ ansible_distribution_release }} main"
+        state: present
+
+    - name: Install Cassandra
+      apt:
+        name: cassandra
+        state: present
+        update_cache: yes
+
+    - name: Ensure Cassandra service is stopped for configuration
+      systemd:
+        name: cassandra
+        state: stopped
+
+    - name: Configure cassandra.yaml
+      template:
+        src: cassandra.yaml.j2
+        dest: /etc/cassandra/cassandra.yaml
+        owner: cassandra
+        group: cassandra
+        mode: 0644
+      notify: restart cassandra
+
+    - name: Configure cassandra-env.sh (optional – JVM tuning)
+      lineinfile:
+        path: /etc/cassandra/cassandra-env.sh
+        regexp: '^MAX_HEAP_SIZE='
+        line: 'MAX_HEAP_SIZE="2G"'
+      notify: restart cassandra
+
+    - name: Start and enable Cassandra
+      systemd:
+        name: cassandra
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: restart cassandra
+      systemd:
+        name: cassandra
+        state: restarted

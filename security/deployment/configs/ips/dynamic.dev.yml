@@ -1,0 +1,22 @@
+http:
+  middlewares:
+    crowdsec-bouncer:
+      forwardAuth:
+        address: http://bouncer-traefik:8080/api/v1/forwardAuth
+        trustForwardHeader: true
+
+  routers:
+    frontend-router:
+      rule: "Host(`app.vegamaps.ru`)"
+      entryPoints:
+        - web
+      middlewares:
+        - crowdsec-bouncer
+      service: external-frontend
+
+  services:
+    external-frontend:
+      loadBalancer:
+        servers:
+          - url: "http://app.vegamaps.ru:80"
+        serversTransport: vegamaps-transport

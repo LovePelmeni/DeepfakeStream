@@ -1,0 +1,304 @@
+name: ML Service CI - Reusable
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      service_name:
+        required: true
+        type: string
+      service_version:
+        required: false
+        type: string
+      model_version:
+        required: false
+        type: string
+        default: latest
+      push_to_registry:
+        required: false
+        type: boolean
+        default: true
+      run_security_scans:
+        required: false
+        type: boolean
+        default: true
+      fail_on_critical_vulns:
+        required: false
+        type: boolean
+        default: true
+      config_file_name:
+        required: false
+        type: string
+        default: infrastructure-config.json
+    secrets:
+      YC_SA_JSON:
+        required: true
+      YANDEX_S3_ACCESS_KEY:
+        required: true
+      YANDEX_S3_SECRET_KEY:
+        required: true
+      CONFIG_BUCKET:
+        required: true
+      OTEL_ENDPOINT:
+        required: false
+      OTEL_AUTH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+
+env:
+  DOCKERFILE_PATH: deployment/production/multistage.Dockerfile
+  BUILD_CONTEXT: .
+  COMPOSE_FILE: docker-compose.dev.yml
+  COMPOSE_DIR: deployment/production
+  COMPOSE_SERVICE_NAME: vegamaps-ml-service
+
+jobs:
+  build_and_test:
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      image_name: ${{ steps.service.outputs.image_name }}
+      service_port: ${{ steps.service.outputs.service_port }}
+      service_version: ${{ steps.version.outputs.service_version }}
+      model_version: ${{ steps.version.outputs.model_version }}
+      registry_id: ${{ steps.infra.outputs.registry_id }}
+      registry_repository: ${{ steps.infra.outputs.registry_repository }}
+      build_duration_ms: ${{ steps.build.outputs.build_duration_ms }}
+      test_duration_ms: ${{ steps.test.outputs.test_duration_ms }}
+      scan_duration_ms: ${{ steps.scan.outputs.scan_duration_ms }}
+      test_passed: ${{ steps.test.outputs.test_passed }}
+      scan_passed: ${{ steps.scan_passed.outputs.scan_passed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          docker system prune -af --volumes || true
+
+      - name: Hard clean Docker state
+        run: |
+          set -euo pipefail
+          docker compose --env-file .env.ci -f "${COMPOSE_FILE}" down -v --remove-orphans || true
+          docker rm -f vegamaps-ml-service vegamaps-ml-stockpile vegamaps-ml-hotspot vegamaps-ml-object-detect vegamaps-ml-segment vegamaps-ml-d3 vegamaps-ml-ortho vegamaps-ml-overlap 2>/dev/null || true
+          docker volume rm -f vegamaps_postgres_data vegamaps_redis_data 2>/dev/null || true
+          docker network rm dev-vegamaps-net 2>/dev/null || true
+
+      - name: Validate SA JSON
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
+        run: |
+          set -euo pipefail
+          echo "$YC_SA_JSON" | jq empty
+
+      - name: Resolve service config
+        id: service
+        run: |
+          set -euo pipefail
+          case "${{ inputs.service_name }}" in
+            stockpile-volume) IMAGE_NAME="vegamaps-ml-stockpile"; SERVICE_PORT="8001" ;;
+            hotspot-detection) IMAGE_NAME="vegamaps-ml-hotspot"; SERVICE_PORT="8002" ;;
+            object-detection) IMAGE_NAME="vegamaps-ml-object-detect"; SERVICE_PORT="8003" ;;
+            object-segmentation) IMAGE_NAME="vegamaps-ml-segment"; SERVICE_PORT="8004" ;;
+            d3-reconstruction) IMAGE_NAME="vegamaps-ml-d3"; SERVICE_PORT="8005" ;;
+            orthomosaic) IMAGE_NAME="vegamaps-ml-ortho"; SERVICE_PORT="8006" ;;
+            overlap-analysis) IMAGE_NAME="vegamaps-ml-overlap"; SERVICE_PORT="8007" ;;
+            *) echo "Unknown service_name: ${{ inputs.service_name }}"; exit 1 ;;
+          esac
+          echo "image_name=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "service_port=$SERVICE_PORT" >> "$GITHUB_OUTPUT"
+
+      - name: Set version
+        id: version
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.service_version }}" ]; then
+            SERVICE_VERSION="${{ inputs.service_version }}"
+          else
+            SERVICE_VERSION="$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:8}"
+          fi
+          echo "service_version=$SERVICE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "model_version=${{ inputs.model_version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Get infrastructure configuration
+        id: infra
+        env:
+          ACCESS_KEY_ID: ${{ secrets.YANDEX_S3_ACCESS_KEY }}
+          SECRET_ACCESS_KEY: ${{ secrets.YANDEX_S3_SECRET_KEY }}
+          BUCKET: ${{ secrets.CONFIG_BUCKET }}
+          OBJECT_PATH: ${{ inputs.config_file_name }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            --user "${ACCESS_KEY_ID}:${SECRET_ACCESS_KEY}" \
+            --aws-sigv4 "aws:amz:ru-central1:s3" \
+            "https://storage.yandexcloud.net/${BUCKET}/${OBJECT_PATH}" \
+            -o config.json
+
+          jq empty config.json
+
+          REGISTRY_ID=$(jq -r '.registry.id // empty' config.json)
+          REGISTRY_REPOSITORY=$(jq -r '.registry.repository // empty' config.json)
+
+          if [ -z "$REGISTRY_ID" ]; then
+            echo "registry.id is missing in config.json"
+            exit 1
+          fi
+
+          if [ -z "$REGISTRY_REPOSITORY" ]; then
+            REGISTRY_REPOSITORY="vegamaps-ml-service"
+          fi
+
+          echo "registry_id=$REGISTRY_ID" >> "$GITHUB_OUTPUT"
+          echo "registry_repository=$REGISTRY_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      - name: Build service Docker image
+        id: build
+        run: |
+          set -euo pipefail
+          START=$(date +%s%N)
+
+          IMAGE_NAME="${{ steps.service.outputs.image_name }}"
+          SERVICE_VERSION="${{ steps.version.outputs.service_version }}"
+          MODEL_VERSION="${{ steps.version.outputs.model_version }}"
+          SERVICE_PORT="${{ steps.service.outputs.service_port }}"
+
+          docker build \
+            --no-cache \
+            --pull \
+            --platform linux/amd64 \
+            --build-arg SERVICE_NAME="${{ inputs.service_name }}" \
+            --build-arg SERVICE_VERSION="${SERVICE_VERSION}" \
+            --build-arg MODEL_VERSION="${MODEL_VERSION}" \
+            --build-arg SERVICE_PORT="${SERVICE_PORT}" \
+            -f "${DOCKERFILE_PATH}" \
+            -t "${IMAGE_NAME}:${SERVICE_VERSION}" \
+            -t "${IMAGE_NAME}:${{ inputs.environment }}-latest" \
+            "${BUILD_CONTEXT}"
+
+          END=$(date +%s%N)
+          echo "build_duration_ms=$(( (END - START) / 1000000 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Trivy vulnerability scan
+        id: scan
+        if: ${{ inputs.run_security_scans }}
+        continue-on-error: ${{ !inputs.fail_on_critical_vulns }}
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.service.outputs.image_name }}:${{ steps.version.outputs.service_version }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+      - name: Mark scan passed
+        if: ${{ inputs.run_security_scans }}
+        id: scan_passed
+        run: echo "scan_passed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write compose env file
+        run: |
+          set -euo pipefail
+          cd "${COMPOSE_DIR}"
+          cat > .env.ci <<EOF
+          SERVICE_NAME=${{ inputs.service_name }}
+          SERVICE_VERSION=${{ steps.version.outputs.service_version }}
+          MODEL_VERSION=${{ steps.version.outputs.model_version }}
+          SERVICE_PORT=${{ steps.service.outputs.service_port }}
+          YANDEX_S3_ACCESS_KEY=${{ secrets.YANDEX_S3_ACCESS_KEY }}
+          YANDEX_S3_SECRET_KEY=${{ secrets.YANDEX_S3_SECRET_KEY }}
+          REDIS_PASSWORD=redispass123
+          EOF
+
+      - name: Test service with docker compose
+        id: test
+        run: |
+          set -euo pipefail
+          START=$(date +%s%N)
+          cd "${COMPOSE_DIR}"
+
+          docker compose --env-file .env.ci -f "${COMPOSE_FILE}" up -d redis "${COMPOSE_SERVICE_NAME}"
+
+          HEALTH_PORT="${{ steps.service.outputs.service_port }}"
+          HEALTH_OK=false
+          for i in $(seq 1 60); do
+            if curl -fsS "http://localhost:${HEALTH_PORT}/api/v1/health" >/dev/null; then
+              HEALTH_OK=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$HEALTH_OK" != "true" ]; then
+            docker compose --env-file .env.ci -f "${COMPOSE_FILE}" logs --no-color --tail=200
+            docker compose --env-file .env.ci -f "${COMPOSE_FILE}" down -v
+            exit 1
+          fi
+
+          END=$(date +%s%N)
+          echo "test_duration_ms=$(( (END - START) / 1000000 ))" >> "$GITHUB_OUTPUT"
+          echo "test_passed=true" >> "$GITHUB_OUTPUT"
+          docker compose --env-file .env.ci -f "${COMPOSE_FILE}" down -v
+
+      - name: Login to Yandex Container Registry
+        if: ${{ inputs.push_to_registry && github.ref == 'refs/heads/main' }}
+        env:
+          YC_SA_JSON: ${{ secrets.YC_SA_JSON }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$YC_SA_JSON" > /tmp/key.json
+          jq -e '.id and .service_account_id and .private_key' /tmp/key.json >/dev/null
+
+          cat /tmp/key.json | docker login \
+            --username json_key \
+            --password-stdin \
+            cr.yandex
+
+      - name: Push to registry
+        id: push
+        if: ${{ inputs.push_to_registry && github.ref == 'refs/heads/main' }}
+        env:
+          YANDEX_REGISTRY_ID: ${{ steps.infra.outputs.registry_id }}
+          REGISTRY_REPOSITORY: ${{ steps.infra.outputs.registry_repository }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${{ steps.service.outputs.image_name }}"
+          SERVICE_VERSION="${{ steps.version.outputs.service_version }}"
+
+          docker tag "${IMAGE_NAME}:${SERVICE_VERSION}" \
+            "cr.yandex/${YANDEX_REGISTRY_ID}/${REGISTRY_REPOSITORY}:${{ inputs.environment }}-${SERVICE_VERSION}"
+          docker tag "${IMAGE_NAME}:${SERVICE_VERSION}" \
+            "cr.yandex/${YANDEX_REGISTRY_ID}/${REGISTRY_REPOSITORY}:${{ inputs.environment }}-latest"
+
+          docker push "cr.yandex/${YANDEX_REGISTRY_ID}/${REGISTRY_REPOSITORY}:${{ inputs.environment }}-${SERVICE_VERSION}"
+          docker push "cr.yandex/${YANDEX_REGISTRY_ID}/${REGISTRY_REPOSITORY}:${{ inputs.environment }}-latest"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd "${COMPOSE_DIR}"
+          docker compose --env-file .env.ci -f "${COMPOSE_FILE}" down -v || true
+          docker system prune -f || true
+
+  compliance_report:
+    runs-on: [self-hosted, linux, x64]
+    needs: build_and_test
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          {
+            echo "## ML CI Report - ${{ inputs.service_name }} (${{ inputs.environment }})"
+            echo ""
+            echo "| Check | Status | Duration |"
+            echo "|---|---|---|"
+            echo "| Build | ${{ needs.build_and_test.result }} | ${{ needs.build_and_test.outputs.build_duration_ms }} ms |"
+            echo "| Test | ${{ needs.build_and_test.result }} | ${{ needs.build_and_test.outputs.test_duration_ms }} ms |"
+            echo "| Scan | ${{ needs.build_and_test.result }} | ${{ needs.build_and_test.outputs.scan_duration_ms }} ms |"
+          } >> "$GITHUB_STEP_SUMMARY"

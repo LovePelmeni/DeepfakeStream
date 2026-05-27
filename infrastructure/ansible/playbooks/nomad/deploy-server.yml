@@ -1,0 +1,54 @@
+---
+- name: Deploy Nomad servers
+  hosts: nomad_servers
+  become: yes
+  vars_files:
+    - ../group_vars/nomad_servers.yml
+
+  tasks:
+    - name: Unarchive Nomad binary from local file
+      unarchive:
+        src: "{{ playbook_dir }}/../../files/nomad/nomad_{{ nomad_version }}_linux_amd64.zip"
+        dest: /usr/local/bin
+        owner: root
+        group: root
+        mode: 0755
+        remote_src: no
+
+    - name: Create nomad user & directories
+      user:
+        name: nomad
+        system: yes
+        shell: /bin/false
+        create_home: no
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: nomad
+        group: nomad
+        mode: 0750
+      loop:
+        - /etc/nomad.d
+        - /var/lib/nomad
+
+    - name: Render server configuration
+      template:
+        src: "{{ playbook_dir }}/../../templates/nomad/server.hcl.j2"
+        dest: /etc/nomad.d/nomad.hcl
+        owner: nomad
+        group: nomad
+        mode: 0640
+      notify: restart nomad
+
+    - name: Install systemd service
+      template:
+        src: "{{ playbook_dir }}/../../templates/nomad/nomad.service.j2"
+        dest: /etc/systemd/system/nomad.service
+        mode: 0644
+      notify: restart nomad
+
+    - name: Enable and start nomad
+      systemd:
+        name: nomad
+        enabled: yes
+        state: started

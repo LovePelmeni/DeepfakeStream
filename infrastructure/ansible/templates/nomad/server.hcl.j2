@@ -1,0 +1,13 @@
+datacenter = "{{ nomad_datacenter }}"
+data_dir = "/var/lib/nomad"
+bind_addr = "0.0.0.0"
+
+server {
+  enabled = true
+  bootstrap_expect = {{ nomad_bootstrap_expect }}
+  encrypt = "{{ gossip_encrypt_key }}"
+}
+
+client {
+  enabled = false   # pure server
+}

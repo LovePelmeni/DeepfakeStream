@@ -1,0 +1,5 @@
+[Unit]
+ConditionFileNotEmpty={{ configuration_location }}/consul.hcl
+
+[Service]
+ExecStart=/usr/bin/consul agent -config-dir={{ configuration_location }}

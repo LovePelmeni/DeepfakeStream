@@ -1,0 +1,6 @@
+---
+- import_playbook: consul/deploy-server.yml
+- import_playbook: consul/deploy-client.yml
+- import_playbook: nomad/deploy-server.yml
+- import_playbook: nomad/deploy-client.yml
+- import_playbook: bastion/deploy-bastion-host.yml

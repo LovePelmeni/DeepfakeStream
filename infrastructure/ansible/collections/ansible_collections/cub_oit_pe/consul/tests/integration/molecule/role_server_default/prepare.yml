@@ -1,0 +1,50 @@
+---
+- name: Prepare
+  hosts: all
+
+  tasks:
+    - name: Install sudo
+      ansible.builtin.package:
+        name: sudo
+        state: present
+
+    - name: Create molecule group
+      ansible.builtin.group:
+        name: molecule
+
+    - name: Create molecule user
+      ansible.builtin.user:
+        name: molecule
+        group: molecule
+
+    - name: Allow sudo for molecule user
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/molecule"
+        mode: 0440
+        owner: root
+        group: root
+        content: |
+          molecule ALL=(ALL) NOPASSWD:ALL
+
+    - name: 'Register Container with RHSM'
+      community.general.redhat_subscription:
+        activationkey: "{{ lookup('env', 'RHSM_ACTIVATION_KEY') }}"
+        org_id: "{{ lookup('env', 'RHSM_ORG_ID') }}"
+        pool_ids: "{{ lookup('env', 'RHSM_POOL_ID') }}"
+      when: ansible_distribution == "RedHat"
+
+    - name: 'Install Versionlock on RHEL 8'
+      ansible.builtin.package:
+        name: 'python3-dnf-plugin-versionlock'
+      when: >
+        (ansible_distribution == "RedHat" or
+        ansible_distribution == "CentOS") and
+        ansible_distribution_major_version == "8"
+
+    - name: 'Install Versionlock on RHEL 7'
+      ansible.builtin.package:
+        name: 'yum-plugin-versionlock'
+      when: >
+        (ansible_distribution == "RedHat" or
+        ansible_distribution == "CentOS") and
+        ansible_distribution_major_version == "7"

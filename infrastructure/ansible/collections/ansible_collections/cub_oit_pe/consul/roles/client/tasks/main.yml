@@ -1,0 +1,11 @@
+---
+# tasks file for server
+- name: "Install Consul Binary"
+  include_role:
+    name: install
+
+- name: "Start and Enable Consul Service"
+  ansible.builtin.service:
+    name: 'consul'
+    state: started
+    enabled: true

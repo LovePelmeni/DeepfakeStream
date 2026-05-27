@@ -1,0 +1,34 @@
+---
+- hosts: thehive
+  become: yes
+
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-17-jdk
+        state: present
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - wget
+          - curl
+          - gnupg
+        state: present
+
+    - name: Add TheHive repository key
+      apt_key:
+        url: https://raw.githubusercontent.com/TheHive-Project/TheHive/master/PGP-PUBLIC-KEY
+        state: present
+
+    - name: Add TheHive APT repository
+      apt_repository:
+        repo: "deb https://deb.thehive-project.org release main"
+        state: present
+
+    - name: Install TheHive
+      apt:
+        name: thehive
+        state: present
+        update_cache: yes
