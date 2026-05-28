@@ -1,2 +1,2 @@
-# DroneSpas_Cloud_Infra
-Cloud Infrastructure as a Code (IaC) powering DroneSpas GIS
+# DeepfakeStream Cloud Infrastructure
+Cloud Infrastructure as a Code (IaC) powering DeepfakeStream
